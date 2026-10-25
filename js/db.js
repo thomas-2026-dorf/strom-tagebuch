@@ -30,7 +30,27 @@ export function defaultState() {
       abschlagEuro: 113,
       ersterAbschlag: '2026-08-10',
     },
+    ewe: eweStandard(),
   };
+}
+
+// Einspeisevergütung EWE NETZ (eigene Abrechnung, nicht mit E.ON verrechnet)
+export function eweStandard() {
+  return {
+    verguetungNettoCent: 8.2,
+    mwst: true,                    // EWE zahlt 19 % MwSt obendrauf
+    abrechnungStart: '2026-04-01', // Übergangszeitraum, danach Kalenderjahr
+    abrechnungEnde: '2026-12-31',
+    abschlagEuro: 60,
+    ersterAbschlag: '2026-05-15',
+    letzterAbschlag: '2027-01-15',
+  };
+}
+
+// Ältere Datenstände auf den aktuellen Aufbau bringen
+export function migrieren(state) {
+  if (!state.ewe) state.ewe = eweStandard();
+  return state;
 }
 
 function oeffnen() {

@@ -1,7 +1,7 @@
-import { laden, speichern, defaultState, neueId, dauerhaftAnfragen } from './db.js';
+import { laden, speichern, defaultState, neueId, dauerhaftAnfragen, migrieren } from './db.js';
 import * as C from './calc.js';
 
-const VERSION = '1.4';
+const VERSION = '1.5';
 
 // ---------- Hilfsfunktionen ----------
 const nf = (min, max) => new Intl.NumberFormat('de-DE', { minimumFractionDigits: min, maximumFractionDigits: max });
@@ -70,7 +70,7 @@ function jahresRechnung(M) {
     enIst: 0, enProg: 0, enEuroIst: 0, enEuroProg: 0, enGrundIst: 0, enGrundProg: 0,
     bezugBis: null,
   };
-  const verg = state.einstellungen.einspeiseverguetungCent / 100;
+  const verg = eweVerguetung();
   const tageJahr = b - a + 1;
   for (let d = a; d <= b; d++) {
     const tar = C.tarifAm(state.tarife, 'haus', d);
@@ -165,16 +165,7 @@ function viewUebersicht() {
       ${istVerteilt(M) ? '<p class="hinweis">Die Bezugswerte sind zwischen weit auseinanderliegenden Ablesungen nach Jahreszeit verteilt. Mit monatlichen Zählerständen wird es genauer.</p>' : ''}
     </section>`;
 
-  const einGes = R.einIst + R.einProg;
-  const einspeisung = `
-    <section class="karte">
-      <h2>Einspeisung – Vergütung EWE</h2>
-      <div class="klein">Läuft über den Netzbetreiber, wird nicht mit E.ON verrechnet · ${f1.format(state.einstellungen.einspeiseverguetungCent)} ct/kWh</div>
-      <div class="tabelle">
-        <div><span>Bisher im Jahr</span><b>${f0.format(R.einIst)} kWh</b><em class="plus">${eur.format(R.einEuroIst)}</em></div>
-        <div><span>Hochrechnung Jahr</span><b>ca. ${f0.format(einGes)} kWh</b><em class="plus">ca. ${eur0.format(R.einEuroIst + R.einEuroProg)}</em></div>
-      </div>
-    </section>`;
+  const einspeisung = eweKarte(M);
 
   const autoKwhIst = R.wbIst + R.enIst;
   const autoEuroIst = R.wbEuroIst + R.enEuroIst + R.enGrundIst;
@@ -195,6 +186,55 @@ function viewUebersicht() {
   const kacheln = state.quellen.map((qq) => kachel(M, R, qq)).join('');
 
   $view.innerHTML = hero + bisher + einspeisung + `<div class="kacheln">${kacheln}</div>` + auto + `<p class="fuss">Version ${VERSION}</p>`;
+}
+
+function eweVerguetung() {
+  const W = state.ewe;
+  return (Number(W.verguetungNettoCent) || 0) * (W.mwst ? 1.19 : 1) / 100; // €/kWh
+}
+
+function eweKarte(M) {
+  const W = state.ewe;
+  const a = C.toDay(W.abrechnungStart), b = C.toDay(W.abrechnungEnde);
+  const Q = M.q.einspeisung;
+  let ist = 0, prog = 0, bis = null;
+  for (let d = a; d <= b; d++) {
+    const x = C.tag(Q, d);
+    if (x.ist) { ist += x.kwh; bis = d; } else prog += x.kwh;
+  }
+  const v = eweVerguetung();
+  const sp = Q.kal ? Q.kal.spanne : 0.2;
+  const [kMin, kMax] = spanne(ist, prog, sp);
+  // Abschläge monatlich vom ersten bis zum letzten
+  const termine = [];
+  if (W.ersterAbschlag && W.letzterAbschlag) {
+    const [y, m, dd] = W.ersterAbschlag.split('-').map(Number);
+    for (let i = 0; i < 24; i++) {
+      const dt = new Date(Date.UTC(y, m - 1 + i, dd)).toISOString().slice(0, 10);
+      if (dt > W.letzterAbschlag) break;
+      termine.push(dt);
+    }
+  }
+  const abschlagSumme = termine.length * (Number(W.abschlagEuro) || 0);
+  const erhalten = termine.filter((d) => C.toDay(d) <= M.t).length;
+  const gut = (ist + prog) * v;
+  const erg = gut - abschlagSumme, eMin = kMin * v - abschlagSumme, eMax = kMax * v - abschlagSumme;
+  const ergText = erg >= 0 ? 'EWE zahlt voraussichtlich nach' : 'Rückzahlung an EWE voraussichtlich';
+  const ct = f2.format(v * 100);
+  return `
+    <section class="karte">
+      <h2>Einspeisung – Vergütung EWE</h2>
+      <div class="klein">Eigene Abrechnung über den Netzbetreiber, nicht mit E.ON verrechnet<br>
+        Zeitraum ${datumDe(W.abrechnungStart)} – ${datumDe(W.abrechnungEnde)} · ${ct} ct/kWh${W.mwst ? ` (${f2.format(W.verguetungNettoCent)} + 19 % MwSt)` : ''}</div>
+      <div class="tabelle">
+        <div><span>Bisher${bis != null ? ` (bis ${datumDe(C.fromDay(bis + 1)).slice(0, 6)})` : ''}</span><b>${f0.format(ist)} kWh</b><em class="plus">${eur.format(ist * v)}</em></div>
+        <div><span>Hochrechnung bis ${datumDe(W.abrechnungEnde).slice(0, 6)}</span><b>${f0.format(kMin)}–${f0.format(kMax)} kWh</b><em class="plus">ca. ${eur0.format(gut)}</em></div>
+        <div><span>Abschläge erhalten</span><b>${erhalten} von ${termine.length}</b><em>${eur.format(erhalten * W.abschlagEuro)}</em></div>
+        <div><span>Abschläge gesamt</span><b>${termine.length} × ${eur0.format(W.abschlagEuro)}</b><em>${eur.format(abschlagSumme)}</em></div>
+        <div class="summe"><span>${ergText}</span><b></b><em class="${erg >= 0 ? 'plus' : 'minus'}">ca. ${eur0.format(Math.abs(erg))}</em></div>
+      </div>
+      <div class="klein">Spanne ${eMin >= 0 ? '+' : '−'}${eur0.format(Math.abs(eMin))} bis ${eMax >= 0 ? '+' : '−'}${eur0.format(Math.abs(eMax))}</div>
+    </section>`;
 }
 
 function spanneEuro(min, max) {
@@ -487,8 +527,24 @@ function viewEinstellungen() {
       </div>
       <div class="zwei">
         <label>Abschlag (€/Monat)<input inputmode="decimal" data-e="abschlagEuro" data-zahl value="${zahlFeld(E.abschlagEuro)}"></label>
-        <label>Einspeisevergütung (ct/kWh)<input inputmode="decimal" data-e="einspeiseverguetungCent" data-zahl value="${zahlFeld(E.einspeiseverguetungCent)}"></label>
       </div>
+    </section>
+    <section class="karte">
+      <h2>Einspeisung EWE NETZ</h2>
+      <div class="zwei">
+        <label>Vergütung netto (ct/kWh)<input inputmode="decimal" data-w="verguetungNettoCent" data-zahl value="${zahlFeld(state.ewe.verguetungNettoCent)}"></label>
+        <label>MwSt dazu?<select data-w="mwst"><option value="1" ${state.ewe.mwst ? 'selected' : ''}>ja, + 19 %</option><option value="0" ${state.ewe.mwst ? '' : 'selected'}>nein</option></select></label>
+      </div>
+      <div class="zwei">
+        <label>Abrechnung von<input type="date" data-w="abrechnungStart" value="${state.ewe.abrechnungStart}"></label>
+        <label>bis<input type="date" data-w="abrechnungEnde" value="${state.ewe.abrechnungEnde}"></label>
+      </div>
+      <div class="zwei">
+        <label>Abschlag (€/Monat)<input inputmode="decimal" data-w="abschlagEuro" data-zahl value="${zahlFeld(state.ewe.abschlagEuro)}"></label>
+        <label>Erster Abschlag<input type="date" data-w="ersterAbschlag" value="${state.ewe.ersterAbschlag}"></label>
+      </div>
+      <label>Letzter Abschlag<input type="date" data-w="letzterAbschlag" value="${state.ewe.letzterAbschlag}"></label>
+      <p class="klein">Nach jeder EWE-Abrechnung hier Zeitraum und neuen Abschlag eintragen.</p>
     </section>
     <section class="karte">
       <h2>Tarife</h2>
@@ -514,7 +570,8 @@ function viewEinstellungen() {
 async function einstellungAendern(el) {
   let v = el.value;
   if (el.hasAttribute('data-zahl')) { v = zahl(v); if (Number.isNaN(v)) v = 0; }
-  if (el.dataset.e) state.einstellungen[el.dataset.e] = v;
+  if (el.dataset.w) state.ewe[el.dataset.w] = el.dataset.w === 'mwst' ? el.value === '1' : v;
+  else if (el.dataset.e) state.einstellungen[el.dataset.e] = v;
   else if (el.dataset.q) { const q = quelle(el.dataset.q); if (q && v !== '') q[el.dataset.feld] = v; }
   else if (el.dataset.t) { const t = state.tarife.find((x) => x.id === el.dataset.t); if (t && v !== '') t[el.dataset.feld] = v; }
   await sichern();
@@ -551,7 +608,7 @@ async function importieren(file) {
     const d = JSON.parse(await file.text());
     if (!Array.isArray(d.quellen) || !Array.isArray(d.eintraege) || !Array.isArray(d.tarife) || !d.einstellungen) throw new Error('Format');
     if (!confirm(`Sicherung mit ${d.eintraege.length} Einträgen laden? Die aktuellen Daten auf dem iPhone werden ersetzt.`)) return;
-    state = d;
+    state = migrieren(d);
     await sichern();
     viewEinstellungen();
     const m2 = document.getElementById('s-meldung');
@@ -625,7 +682,7 @@ $view.addEventListener('input', (ev) => {
 $view.addEventListener('change', async (ev) => {
   const el = ev.target;
   if (el.id === 'import' && el.files?.[0]) { await importieren(el.files[0]); el.value = ''; return; }
-  if (tab === 'einstellungen' && (el.dataset.e || el.dataset.q || el.dataset.t)) await einstellungAendern(el);
+  if (tab === 'einstellungen' && (el.dataset.e || el.dataset.w || el.dataset.q || el.dataset.t)) await einstellungAendern(el);
 });
 
 $view.addEventListener('keydown', async (ev) => {
@@ -634,7 +691,7 @@ $view.addEventListener('keydown', async (ev) => {
 
 // ---------- Start ----------
 (async function start() {
-  state = (await laden()) || defaultState();
+  state = migrieren((await laden()) || defaultState());
   dauerhaftAnfragen();
   zeige('uebersicht');
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

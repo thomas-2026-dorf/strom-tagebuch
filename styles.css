@@ -123,6 +123,10 @@ input {
   background: var(--feld); border: 1px solid var(--linie); border-radius: 10px; padding: 11px 12px;
   -webkit-appearance: none; appearance: none; min-height: 46px;
 }
+select {
+  display: block; width: 100%; margin-top: 4px; font: inherit; font-size: 17px; color: var(--text);
+  background: var(--feld); border: 1px solid var(--linie); border-radius: 10px; padding: 11px 12px; min-height: 46px;
+}
 input:focus { outline: 2px solid var(--akzent); outline-offset: 0; }
 .gross-eingabe { font-size: 34px; font-weight: 700; padding: 12px 14px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .zwei { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
