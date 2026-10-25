@@ -103,6 +103,8 @@ h3:first-of-type { margin-top: 4px; }
 .k-wert { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .k-wert small { font-size: 13px; font-weight: 500; color: var(--leise); }
 .k-sub { font-size: 12px; color: var(--leise); }
+.k-seit { font-size: 12px; color: var(--akzent); font-weight: 600; margin-top: 4px; }
+.k-wert { font-size: 20px; }
 
 /* Chips */
 .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 10px; scrollbar-width: none; }

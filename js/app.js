@@ -1,6 +1,8 @@
 import { laden, speichern, defaultState, neueId, dauerhaftAnfragen } from './db.js';
 import * as C from './calc.js';
 
+const VERSION = '1.4';
+
 // ---------- Hilfsfunktionen ----------
 const nf = (min, max) => new Intl.NumberFormat('de-DE', { minimumFractionDigits: min, maximumFractionDigits: max });
 const f0 = nf(0, 0), f1 = nf(0, 1), f2 = nf(2, 2);
@@ -192,7 +194,7 @@ function viewUebersicht() {
 
   const kacheln = state.quellen.map((qq) => kachel(M, R, qq)).join('');
 
-  $view.innerHTML = hero + bisher + einspeisung + `<div class="kacheln">${kacheln}</div>` + auto;
+  $view.innerHTML = hero + bisher + einspeisung + `<div class="kacheln">${kacheln}</div>` + auto + `<p class="fuss">Version ${VERSION}</p>`;
 }
 
 function spanneEuro(min, max) {
@@ -211,16 +213,20 @@ function kachel(M, R, qq) {
   const es = eintraegeVon(qq.id).sort((x, y) => (x.datum < y.datum ? 1 : -1));
   const letzter = es[0];
   const map = { bezug: R.bezugIst, einspeisung: R.einIst, waermepumpe: R.wpIst, wallbox: R.wbIst, enbw: R.enIst };
-  let zusatz = '';
+  const seit = `seit ${datumDe(C.fromDay(M.jahr.a)).slice(0, 6)}: ${qq.art === 'zaehlerstand' ? 'ca. ' : ''}${f0.format(map[qq.id] || 0)} kWh`;
+  let gross, unter;
   if (qq.art === 'zaehlerstand') {
-    zusatz = letzter ? `Stand ${f1.format(letzter.wert)} · ${datumDe(letzter.datum)}` : 'noch keine Ablesung';
+    gross = letzter ? f2.format(letzter.wert) : '–';
+    unter = letzter ? `Zählerstand am ${datumDe(letzter.datum)}` : 'noch keine Ablesung';
   } else {
-    zusatz = letzter ? `zuletzt ${datumDe(letzter.datum)}` : 'noch kein Eintrag';
+    gross = f2.format(es.reduce((s, e) => s + Number(e.wert), 0));
+    unter = letzter ? `insgesamt erfasst, ${es.length} ${es.length === 1 ? "Eintrag" : "Einträge"}` : 'noch kein Eintrag';
   }
   return `<button class="kachel" data-goto-verlauf="${qq.id}">
     <span class="k-name">${esc(qq.kurz)}</span>
-    <span class="k-wert">${f0.format(map[qq.id] || 0)} <small>kWh</small></span>
-    <span class="k-sub">${esc(zusatz)}</span>
+    <span class="k-wert">${gross} <small>kWh</small></span>
+    <span class="k-sub">${esc(unter)}</span>
+    ${letzter ? `<span class="k-seit">${esc(seit)}</span>` : ''}
   </button>`;
 }
 
@@ -502,7 +508,7 @@ function viewEinstellungen() {
       <button class="link loeschen" id="alles-loeschen">Alle Daten löschen</button>
       <div id="s-meldung" class="meldung"></div>
     </section>
-    <p class="fuss">Strom-Tagebuch · ${state.eintraege.length} Einträge</p>`;
+    <p class="fuss">Strom-Tagebuch · Version ${VERSION} · ${state.eintraege.length} Einträge</p>`;
 }
 
 async function einstellungAendern(el) {
