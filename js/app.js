@@ -1,7 +1,7 @@
 import { laden, speichern, defaultState, neueId, dauerhaftAnfragen, migrieren } from './db.js';
 import * as C from './calc.js';
 
-const VERSION = '1.7';
+const VERSION = '1.8';
 
 // ---------- Hilfsfunktionen ----------
 const nf = (min, max) => new Intl.NumberFormat('de-DE', { minimumFractionDigits: min, maximumFractionDigits: max });
@@ -394,10 +394,12 @@ async function eingabeSpeichern() {
     }
     // Gleicher Monat bzw. gleicher Zeitraum schon vorhanden? -> ersetzen statt doppelt
     const gleich = state.eintraege.find((x) => x.quelleId === q.id && x.id !== form.editId && x.vonDatum === von
-      && (form.modus === 'monat' ? x.datum.slice(0, 7) === von.slice(0, 7) : x.datum === bis));
+      && (form.modus === 'monat'
+        ? x.datum.slice(0, 7) === von.slice(0, 7) && x.vonDatum.slice(8) === '01'
+        : x.datum === bis && Math.abs(Number(x.wert) - w) < 0.005)); // Ladevorgänge: nur bei gleichem Tag UND gleicher Menge
     if (gleich) {
       const was = form.modus === 'monat' ? monatDe(form.monat) : `${datumDe(von)} – ${datumDe(bis)}`;
-      if (!confirm(`Für ${was} gibt es schon einen Eintrag (${f2.format(gleich.wert)} kWh). Ersetzen?`)) return;
+      if (!confirm(form.modus === 'monat' ? `Für ${was} gibt es schon einen Eintrag (${f2.format(gleich.wert)} kWh). Ersetzen?` : `Genau diesen Ladevorgang (${was}, ${f2.format(gleich.wert)} kWh) gibt es schon. Ersetzen statt doppelt speichern?`)) return;
       state.eintraege = state.eintraege.filter((x) => x !== gleich);
     }
   }
