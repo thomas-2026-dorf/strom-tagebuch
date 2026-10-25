@@ -1,7 +1,7 @@
 import { laden, speichern, defaultState, neueId, dauerhaftAnfragen, migrieren } from './db.js';
 import * as C from './calc.js';
 
-const VERSION = '1.5';
+const VERSION = '1.6';
 
 // ---------- Hilfsfunktionen ----------
 const nf = (min, max) => new Intl.NumberFormat('de-DE', { minimumFractionDigits: min, maximumFractionDigits: max });
@@ -229,6 +229,8 @@ function eweKarte(M) {
       <div class="tabelle">
         <div><span>Bisher${bis != null ? ` (bis ${datumDe(C.fromDay(bis + 1)).slice(0, 6)})` : ''}</span><b>${f0.format(ist)} kWh</b><em class="plus">${eur.format(ist * v)}</em></div>
         <div><span>Hochrechnung bis ${datumDe(W.abrechnungEnde).slice(0, 6)}</span><b>${f0.format(kMin)}–${f0.format(kMax)} kWh</b><em class="plus">ca. ${eur0.format(gut)}</em></div>
+        ${W.mwst ? `<div><span>davon MwSt ans Finanzamt</span><b></b><em>ca. ${eur0.format(gut - gut / 1.19)}</em></div>
+        <div class="summe"><span>Bleibt dir netto</span><b></b><em class="plus">ca. ${eur0.format(gut / 1.19)}</em></div>` : ''}
         <div><span>Abschläge erhalten</span><b>${erhalten} von ${termine.length}</b><em>${eur.format(erhalten * W.abschlagEuro)}</em></div>
         <div><span>Abschläge gesamt</span><b>${termine.length} × ${eur0.format(W.abschlagEuro)}</b><em>${eur.format(abschlagSumme)}</em></div>
         <div class="summe"><span>${ergText}</span><b></b><em class="${erg >= 0 ? 'plus' : 'minus'}">ca. ${eur0.format(Math.abs(erg))}</em></div>
@@ -533,7 +535,7 @@ function viewEinstellungen() {
       <h2>Einspeisung EWE NETZ</h2>
       <div class="zwei">
         <label>Vergütung netto (ct/kWh)<input inputmode="decimal" data-w="verguetungNettoCent" data-zahl value="${zahlFeld(state.ewe.verguetungNettoCent)}"></label>
-        <label>MwSt dazu?<select data-w="mwst"><option value="1" ${state.ewe.mwst ? 'selected' : ''}>ja, + 19 %</option><option value="0" ${state.ewe.mwst ? '' : 'selected'}>nein</option></select></label>
+        <label>EWE zahlt MwSt aus?<select data-w="mwst"><option value="1" ${state.ewe.mwst ? 'selected' : ''}>ja, + 19 % (ans Finanzamt)</option><option value="0" ${state.ewe.mwst ? '' : 'selected'}>nein</option></select></label>
       </div>
       <div class="zwei">
         <label>Abrechnung von<input type="date" data-w="abrechnungStart" value="${state.ewe.abrechnungStart}"></label>

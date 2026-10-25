@@ -1,5 +1,5 @@
 // Offline-Unterstützung: erst Netz (damit Updates sofort ankommen), sonst Cache.
-const CACHE = 'strom-tagebuch-v5';
+const CACHE = 'strom-tagebuch-v6';
 const DATEIEN = ['./', 'index.html', 'styles.css', 'js/app.js', 'js/calc.js', 'js/db.js',
   'manifest.webmanifest', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
