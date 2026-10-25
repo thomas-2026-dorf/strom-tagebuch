@@ -39,6 +39,7 @@ export function eweStandard() {
   return {
     verguetungNettoCent: 8.2,
     mwst: true,                    // EWE zahlt 19 % MwSt obendrauf
+    netzbetreiber: 'EWE',
     abrechnungStart: '2026-04-01', // Übergangszeitraum, danach Kalenderjahr
     abrechnungEnde: '2026-12-31',
     abschlagEuro: 60,
@@ -50,7 +51,49 @@ export function eweStandard() {
 // Ältere Datenstände auf den aktuellen Aufbau bringen
 export function migrieren(state) {
   if (!state.ewe) state.ewe = eweStandard();
+  if (!state.ewe.netzbetreiber) state.ewe.netzbetreiber = 'EWE';
+  for (const q of state.quellen) if (q.aktiv === undefined) q.aktiv = true;
   return state;
+}
+
+// Neue, leere Installation aus den Angaben der Einrichtung
+export function neuerState(c) {
+  const zaehler = (id, name, kurz, profil, aktiv, stand) =>
+    ({ id, name, kurz, art: 'zaehlerstand', profil, aktiv, startDatum: c.startDatum, startStand: stand || 0 });
+  const s = {
+    version: 1,
+    quellen: [
+      zaehler('bezug', 'Netzbezug 1.8.0', 'Bezug', 'bezug', true, c.startBezug),
+      zaehler('einspeisung', 'Einspeisung 2.8.0', 'Einspeisung', 'pv', c.pv, c.startEinspeisung),
+      zaehler('waermepumpe', 'Wärmepumpe', 'Wärmepumpe', 'wp', c.wp, c.startWp),
+      { id: 'wallbox', name: 'Wallbox', kurz: 'Wallbox', art: 'verbrauch', profil: 'flach', aktiv: c.wallbox },
+      { id: 'enbw', name: 'Laden unterwegs', kurz: 'Unterwegs', art: 'verbrauch', profil: 'flach', mitBetrag: true, aktiv: c.unterwegs },
+    ],
+    eintraege: [],
+    tarife: [
+      { id: neueId(), bereich: 'haus', anbieter: c.anbieter || 'Stromanbieter', name: '', gueltigAb: '2000-01-01',
+        arbeitspreisCent: c.arbeitspreisCent || 0, grundpreisJahr: c.grundpreisJahr || 0 },
+    ],
+    einstellungen: {
+      einspeiseverguetungCent: 0,
+      abrechnungStart: c.abrechnungStart,
+      abschlagEuro: c.abschlagEuro || 0,
+      ersterAbschlag: c.ersterAbschlag || c.abrechnungStart,
+    },
+    ewe: {
+      netzbetreiber: c.netzbetreiber || 'Netzbetreiber',
+      verguetungNettoCent: c.verguetungNettoCent || 0,
+      mwst: !!c.mwst,
+      abrechnungStart: c.eweStart || c.abrechnungStart,
+      abrechnungEnde: c.eweEnde || c.abrechnungStart,
+      abschlagEuro: c.eweAbschlag || 0,
+      ersterAbschlag: c.eweErsterAbschlag || '',
+      letzterAbschlag: c.eweLetzterAbschlag || '',
+    },
+  };
+  if (c.unterwegs) s.tarife.push({ id: neueId(), bereich: 'auswaerts', anbieter: c.unterwegsAnbieter || 'Ladeanbieter', name: '',
+    gueltigAb: '2000-01-01', arbeitspreisCent: c.unterwegsCent || 0, grundpreisMonat: c.unterwegsGrund || 0 });
+  return s;
 }
 
 function oeffnen() {

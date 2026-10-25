@@ -209,3 +209,22 @@ button.link.loeschen { color: var(--schlecht); }
 .tabs svg { width: 25px; height: 25px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .tabs button.aktiv { color: var(--akzent); }
 .tabs button[data-tab="uebersicht"].aktiv svg { fill: var(--strom); stroke: var(--strom); }
+
+/* Einrichtung & Quellen */
+[hidden] { display: none !important; }
+body.einrichtung .tabs { display: none; }
+body.einrichtung { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+label.haken { display: flex; align-items: center; gap: 12px; font-size: 17px; color: var(--text); padding: 10px 0; border-bottom: 1px solid var(--linie); margin: 0; }
+label.haken:last-child { border-bottom: 0; }
+label.haken input { width: 24px; height: 24px; min-height: 0; margin: 0; flex: none; accent-color: var(--akzent); -webkit-appearance: checkbox; appearance: auto; }
+.quelle-zeile { display: flex; align-items: flex-end; gap: 14px; padding: 4px 0 10px; border-bottom: 1px solid var(--linie); }
+.quelle-zeile:last-child { border-bottom: 0; }
+.q-name { flex: 1; margin-top: 6px; }
+.schalter { position: relative; flex: none; width: 52px; height: 32px; margin: 0 0 7px; }
+.schalter input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; min-height: 0; z-index: 1; }
+.schalter span { position: absolute; inset: 0; background: var(--linie); border-radius: 999px; transition: background .2s; }
+.schalter span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .2s; }
+.schalter input:checked + span { background: var(--akzent); }
+.schalter input:checked + span::after { transform: translateX(20px); }
+.schalter input:disabled + span { opacity: .5; }
+.zwei > * { min-width: 0; }

@@ -1,7 +1,7 @@
-import { laden, speichern, defaultState, neueId, dauerhaftAnfragen, migrieren } from './db.js';
+import { laden, speichern, neueId, dauerhaftAnfragen, migrieren, neuerState } from './db.js';
 import * as C from './calc.js';
 
-const VERSION = '1.8';
+const VERSION = '2.0';
 
 // ---------- Hilfsfunktionen ----------
 const nf = (min, max) => new Intl.NumberFormat('de-DE', { minimumFractionDigits: min, maximumFractionDigits: max });
@@ -40,11 +40,17 @@ const $view = document.getElementById('view');
 const $titel = document.getElementById('titel');
 
 function quelle(id) { return state.quellen.find((q) => q.id === id); }
+function aktiv(id) { return quelle(id)?.aktiv !== false; }
+function aktiveQuellen() { return state.quellen.filter((q) => q.aktiv !== false); }
+function anbieterHaus() { const t = C.tarifAm(state.tarife, 'haus', C.toDay(heute())); return t?.anbieter || 'Stromanbieter'; }
+function anbieterUnterwegs() { const t = C.tarifAm(state.tarife, 'auswaerts', C.toDay(heute())); return t?.anbieter || 'Ladeanbieter'; }
+function netzbetreiber() { return state.ewe?.netzbetreiber || 'Netzbetreiber'; }
 function eintraegeVon(id) { return state.eintraege.filter((e) => e.quelleId === id); }
 
 async function sichern() { await speichern(state); }
 
 function neuesForm(quelleId = form?.quelleId || 'bezug') {
+  if (!aktiv(quelleId)) quelleId = aktiveQuellen()[0]?.id || 'bezug';
   const h = heute();
   return { editId: null, quelleId, datum: h, wert: '', monat: h.slice(0, 7), modus: 'monat', vonDatum: h, bisDatum: h, betrag: '', notiz: '' };
 }
@@ -138,7 +144,7 @@ function viewUebersicht() {
       <div class="sub">Spanne ${spanneEuro(dMin, dMax)}</div>
       <div class="zeilen">
         <div><span>Netzbezug Jahr</span><b>${f0.format(bMin)}–${f0.format(bMax)} kWh</b></div>
-        <div><span>Stromkosten E.ON</span><b>${eur0.format(kMin)}–${eur0.format(kMax)}</b></div>
+        <div><span>Stromkosten ${esc(anbieterHaus())}</span><b>${eur0.format(kMin)}–${eur0.format(kMax)}</b></div>
         <div><span>Abschläge (12 × ${eur0.format(state.einstellungen.abschlagEuro)})</span><b>${eur0.format(R.abschlagSumme)}</b></div>
       </div>
       <div class="balken"><div style="width:${fortschritt}%"></div></div>
@@ -153,7 +159,7 @@ function viewUebersicht() {
   const gezahlt = R.abschlaegeGezahlt * state.einstellungen.abschlagEuro;
   const bisher = `
     <section class="karte">
-      <h2>E.ON bisher im Abrechnungsjahr</h2>
+      <h2>${esc(anbieterHaus())} bisher im Abrechnungsjahr</h2>
       <div class="klein">Bezug bis Ablesung ${bis} · Grundpreis bis heute</div>
       <div class="tabelle">
         <div><span>Netzbezug</span><b>${f0.format(R.bezugIst)} kWh</b><em>${eur.format(R.arbeitIst)}</em></div>
@@ -165,25 +171,25 @@ function viewUebersicht() {
       ${istVerteilt(M) ? '<p class="hinweis">Die Bezugswerte sind zwischen weit auseinanderliegenden Ablesungen nach Jahreszeit verteilt. Mit monatlichen Zählerständen wird es genauer.</p>' : ''}
     </section>`;
 
-  const einspeisung = eweKarte(M);
+  const einspeisung = aktiv('einspeisung') ? eweKarte(M) : '';
 
   const autoKwhIst = R.wbIst + R.enIst;
   const autoEuroIst = R.wbEuroIst + R.enEuroIst + R.enGrundIst;
   const autoEuroGes = autoEuroIst + R.wbEuroProg + R.enEuroProg + R.enGrundProg;
   const autoKwhGes = autoKwhIst + R.wbProg + R.enProg;
-  const auto = `
+  const auto = !(aktiv('wallbox') || aktiv('enbw')) ? '' : `
     <section class="karte">
       <h2>Auto gesamt</h2>
       <div class="tabelle">
-        <div><span>Wallbox zu Hause</span><b>${f0.format(R.wbIst)} kWh</b><em>${eur.format(R.wbEuroIst)}</em></div>
-        <div><span>EnBW unterwegs</span><b>${f0.format(R.enIst)} kWh</b><em>${eur.format(R.enEuroIst)}</em></div>
-        <div><span>EnBW Grundgebühr</span><b></b><em>${eur.format(R.enGrundIst)}</em></div>
+        ${aktiv('wallbox') ? `<div><span>Wallbox zu Hause</span><b>${f0.format(R.wbIst)} kWh</b><em>${eur.format(R.wbEuroIst)}</em></div>` : ''}
+        ${aktiv('enbw') ? `<div><span>${esc(anbieterUnterwegs())} unterwegs</span><b>${f0.format(R.enIst)} kWh</b><em>${eur.format(R.enEuroIst)}</em></div>
+        <div><span>${esc(anbieterUnterwegs())} Grundgebühr</span><b></b><em>${eur.format(R.enGrundIst)}</em></div>` : ''}
         <div class="summe"><span>Bisher im Jahr</span><b>${f0.format(autoKwhIst)} kWh</b><em>${eur.format(autoEuroIst)}</em></div>
       </div>
       <div class="klein">Ø ${autoKwhIst > 0 ? f1.format((autoEuroIst / autoKwhIst) * 100) : '–'} ct/kWh · Hochrechnung Jahr ca. ${f0.format(autoKwhGes)} kWh / ${eur0.format(autoEuroGes)}</div>
     </section>`;
 
-  const kacheln = state.quellen.map((qq) => kachel(M, R, qq)).join('');
+  const kacheln = aktiveQuellen().map((qq) => kachel(M, R, qq)).join('');
 
   $view.innerHTML = hero + bisher + einspeisung + `<div class="kacheln">${kacheln}</div>` + auto + `<p class="fuss">Version ${VERSION}</p>`;
 }
@@ -219,12 +225,12 @@ function eweKarte(M) {
   const erhalten = termine.filter((d) => C.toDay(d) <= M.t).length;
   const gut = (ist + prog) * v;
   const erg = gut - abschlagSumme, eMin = kMin * v - abschlagSumme, eMax = kMax * v - abschlagSumme;
-  const ergText = erg >= 0 ? 'EWE zahlt voraussichtlich nach' : 'Rückzahlung an EWE voraussichtlich';
+  const ergText = erg >= 0 ? `${netzbetreiber()} zahlt voraussichtlich nach` : `Rückzahlung an ${netzbetreiber()} voraussichtlich`;
   const ct = f2.format(v * 100);
   return `
     <section class="karte">
-      <h2>Einspeisung – Vergütung EWE</h2>
-      <div class="klein">Eigene Abrechnung über den Netzbetreiber, nicht mit E.ON verrechnet<br>
+      <h2>Einspeisung – Vergütung ${esc(netzbetreiber())}</h2>
+      <div class="klein">Eigene Abrechnung über den Netzbetreiber, nicht mit ${esc(anbieterHaus())} verrechnet<br>
         Zeitraum ${datumDe(W.abrechnungStart)} – ${datumDe(W.abrechnungEnde)} · ${ct} ct/kWh${W.mwst ? ` (${f2.format(W.verguetungNettoCent)} + 19 % MwSt)` : ''}</div>
       <div class="tabelle">
         <div><span>Bisher${bis != null ? ` (bis ${datumDe(C.fromDay(bis + 1)).slice(0, 6)})` : ''}</span><b>${f0.format(ist)} kWh</b><em class="plus">${eur.format(ist * v)}</em></div>
@@ -276,7 +282,7 @@ function kachel(M, R, qq) {
 function viewEingabe(bestaetigung = null) {
   if (!form) form = neuesForm();
   const q = quelle(form.quelleId);
-  const chips = state.quellen.map((x) => {
+  const chips = aktiveQuellen().map((x) => {
     const n = eintraegeVon(x.id).length;
     return `<button class="chip ${x.id === form.quelleId ? 'an' : ''}" data-quelle="${x.id}">${esc(x.kurz)}${n ? ` <span class="anzahl">${n}</span>` : ''}</button>`;
   }).join('');
@@ -421,10 +427,11 @@ async function eingabeSpeichern() {
 
 // ---------- Verlauf ----------
 function viewVerlauf() {
+  if (!aktiv(verlaufQuelle)) verlaufQuelle = aktiveQuellen()[0].id;
   const M = modell();
   const Q = M.q[verlaufQuelle];
   const q = Q.quelle;
-  const chips = state.quellen.map((x) => `<button class="chip ${x.id === verlaufQuelle ? 'an' : ''}" data-verlauf="${x.id}">${esc(x.kurz)}</button>`).join('');
+  const chips = aktiveQuellen().map((x) => `<button class="chip ${x.id === verlaufQuelle ? 'an' : ''}" data-verlauf="${x.id}">${esc(x.kurz)}</button>`).join('');
   const ms = C.monate(Q).slice(-15);
   const max = Math.max(1, ...ms.map((m) => m.kwh));
   const balken = ms.length ? ms.map((m) => `
@@ -500,7 +507,7 @@ function bearbeiten(id) {
 // ---------- Einstellungen ----------
 function viewEinstellungen() {
   const E = state.einstellungen;
-  const zaehler = state.quellen.filter((q) => q.art === 'zaehlerstand').map((q) => `
+  const zaehler = aktiveQuellen().filter((q) => q.art === 'zaehlerstand').map((q) => `
     <div class="zwei">
       <label>${esc(q.kurz)} – gezählt seit<input type="date" data-q="${q.id}" data-feld="startDatum" value="${q.startDatum}"></label>
       <label>Startstand (kWh)<input inputmode="decimal" data-q="${q.id}" data-feld="startStand" data-zahl value="${zahlFeld(q.startStand)}"></label>
@@ -524,7 +531,7 @@ function viewEinstellungen() {
 
   $view.innerHTML = `
     <section class="karte">
-      <h2>Abrechnung E.ON</h2>
+      <h2>Abrechnung Strom (${esc(anbieterHaus())})</h2>
       <div class="zwei">
         <label>Abrechnungsjahr beginnt<input type="date" data-e="abrechnungStart" value="${E.abrechnungStart}"></label>
         <label>Erster Abschlag am<input type="date" data-e="ersterAbschlag" value="${E.ersterAbschlag}"></label>
@@ -534,10 +541,11 @@ function viewEinstellungen() {
       </div>
     </section>
     <section class="karte">
-      <h2>Einspeisung EWE NETZ</h2>
+      <h2>Einspeisung (${esc(netzbetreiber())})</h2>
+      <label>Netzbetreiber<input data-w="netzbetreiber" value="${esc(netzbetreiber())}"></label>
       <div class="zwei">
         <label>Vergütung netto (ct/kWh)<input inputmode="decimal" data-w="verguetungNettoCent" data-zahl value="${zahlFeld(state.ewe.verguetungNettoCent)}"></label>
-        <label>EWE zahlt MwSt aus?<select data-w="mwst"><option value="1" ${state.ewe.mwst ? 'selected' : ''}>ja, + 19 % (ans Finanzamt)</option><option value="0" ${state.ewe.mwst ? '' : 'selected'}>nein</option></select></label>
+        <label>Zahlt MwSt aus?<select data-w="mwst"><option value="1" ${state.ewe.mwst ? 'selected' : ''}>ja, + 19 % (ans Finanzamt)</option><option value="0" ${state.ewe.mwst ? '' : 'selected'}>nein</option></select></label>
       </div>
       <div class="zwei">
         <label>Abrechnung von<input type="date" data-w="abrechnungStart" value="${state.ewe.abrechnungStart}"></label>
@@ -548,12 +556,21 @@ function viewEinstellungen() {
         <label>Erster Abschlag<input type="date" data-w="ersterAbschlag" value="${state.ewe.ersterAbschlag}"></label>
       </div>
       <label>Letzter Abschlag<input type="date" data-w="letzterAbschlag" value="${state.ewe.letzterAbschlag}"></label>
-      <p class="klein">Nach jeder EWE-Abrechnung hier Zeitraum und neuen Abschlag eintragen.</p>
+      <p class="klein">Nach jeder Einspeise-Abrechnung hier Zeitraum und neuen Abschlag eintragen.</p>
     </section>
     <section class="karte">
       <h2>Tarife</h2>
       ${tarifBlock('haus', 'Strom zu Hause', 'grundpreisJahr', 'Grundpreis (€/Jahr)')}
       ${tarifBlock('auswaerts', 'Laden unterwegs', 'grundpreisMonat', 'Grundgebühr (€/Monat)')}
+    </section>
+    <section class="karte">
+      <h2>Quellen</h2>
+      <p class="klein">Was du nicht hast, einfach ausschalten. Später jederzeit wieder einschaltbar – vorhandene Einträge bleiben erhalten.</p>
+      ${state.quellen.map((q) => `
+        <div class="quelle-zeile">
+          <label class="schalter"><input type="checkbox" data-qa="${q.id}" ${q.aktiv !== false ? 'checked' : ''} ${q.id === 'bezug' ? 'disabled' : ''}><span></span></label>
+          <label class="q-name">Anzeigename<input data-q="${q.id}" data-feld="kurz" value="${esc(q.kurz)}"></label>
+        </div>`).join('')}
     </section>
     <section class="karte">
       <h2>Zähler – Startwerte</h2>
@@ -574,6 +591,12 @@ function viewEinstellungen() {
 async function einstellungAendern(el) {
   let v = el.value;
   if (el.hasAttribute('data-zahl')) { v = zahl(v); if (Number.isNaN(v)) v = 0; }
+  if (el.dataset.qa) {
+    const q = quelle(el.dataset.qa);
+    q.aktiv = el.checked;
+    if (q.aktiv && q.art === 'zaehlerstand' && !q.startDatum) { q.startDatum = heute(); q.startStand = 0; }
+    await sichern(); viewEinstellungen(); return;
+  }
   if (el.dataset.w) state.ewe[el.dataset.w] = el.dataset.w === 'mwst' ? el.value === '1' : v;
   else if (el.dataset.e) state.einstellungen[el.dataset.e] = v;
   else if (el.dataset.q) { const q = quelle(el.dataset.q); if (q && v !== '') q[el.dataset.feld] = v; }
@@ -611,15 +634,107 @@ async function importieren(file) {
   try {
     const d = JSON.parse(await file.text());
     if (!Array.isArray(d.quellen) || !Array.isArray(d.eintraege) || !Array.isArray(d.tarife) || !d.einstellungen) throw new Error('Format');
-    if (!confirm(`Sicherung mit ${d.eintraege.length} Einträgen laden? Die aktuellen Daten auf dem iPhone werden ersetzt.`)) return;
+    if (state && !confirm(`Sicherung mit ${d.eintraege.length} Einträgen laden? Die aktuellen Daten auf dem iPhone werden ersetzt.`)) return;
     state = migrieren(d);
     await sichern();
-    viewEinstellungen();
+    document.body.classList.remove('einrichtung');
+    zeige('einstellungen');
     const m2 = document.getElementById('s-meldung');
     m2.textContent = `Importiert: ${d.eintraege.length} Einträge ✓`; m2.className = 'meldung ok';
   } catch {
     m.textContent = 'Die Datei konnte nicht gelesen werden.'; m.className = 'meldung fehler';
   }
+}
+
+// ---------- Einrichtung (erster Start) ----------
+function viewEinrichtung() {
+  tab = 'einrichtung';
+  document.body.classList.add('einrichtung');
+  $titel.textContent = 'Willkommen';
+  const h = heute();
+  const jahr = h.slice(0, 4);
+  const feld = (id, label, wert = '', typ = 'zahl') => typ === 'datum'
+    ? `<label>${label}<input type="date" id="${id}" value="${wert}"></label>`
+    : typ === 'text' ? `<label>${label}<input id="${id}" value="${esc(wert)}" autocomplete="off"></label>`
+    : `<label>${label}<input id="${id}" inputmode="decimal" value="${wert}" autocomplete="off"></label>`;
+  const schalter = (id, text, an) => `<label class="haken"><input type="checkbox" id="${id}" ${an ? 'checked' : ''}> ${text}</label>`;
+  $view.innerHTML = `
+    <section class="karte">
+      <h2>Strom-Tagebuch einrichten</h2>
+      <p class="klein">Ein paar Angaben, dann kann es losgehen. Alles lässt sich später unter Einstellungen ändern. Die Daten bleiben nur auf diesem iPhone.</p>
+    </section>
+    <section class="karte">
+      <h2>Was hast du?</h2>
+      ${schalter('e-pv', 'Solaranlage mit Einspeisung', true)}
+      ${schalter('e-wp', 'Wärmepumpe mit eigenem Zähler', false)}
+      ${schalter('e-wallbox', 'Wallbox zu Hause', false)}
+      ${schalter('e-unterwegs', 'E-Auto unterwegs laden', false)}
+    </section>
+    <section class="karte">
+      <h2>Zähler</h2>
+      <p class="klein">Ab wann zählst du? Trag die Zählerstände von diesem Tag ein (z. B. heute).</p>
+      ${feld('e-start', 'Gezählt ab', h, 'datum')}
+      <div class="zwei">${feld('e-sbezug', 'Stand Bezug 1.8.0 (kWh)', '0')}<span data-wenn="e-pv">${feld('e-sein', 'Stand Einspeisung 2.8.0', '0')}</span></div>
+      <div data-wenn="e-wp">${feld('e-swp', 'Stand Wärmepumpe (kWh)', '0')}</div>
+    </section>
+    <section class="karte">
+      <h2>Stromanbieter</h2>
+      ${feld('e-anbieter', 'Anbieter', '', 'text')}
+      <div class="zwei">${feld('e-ct', 'Arbeitspreis brutto (ct/kWh)')}${feld('e-grund', 'Grundpreis brutto (€/Jahr)')}</div>
+      <div class="zwei">${feld('e-abschlag', 'Abschlag (€/Monat)')}${feld('e-ersterabschlag', 'Erster Abschlag am', '', 'datum')}</div>
+      ${feld('e-abrstart', 'Abrechnungsjahr beginnt am', `${jahr}-01-01`, 'datum')}
+    </section>
+    <section class="karte" data-wenn="e-pv">
+      <h2>Einspeisevergütung</h2>
+      ${feld('e-netz', 'Netzbetreiber', '', 'text')}
+      <div class="zwei">${feld('e-verg', 'Vergütung netto (ct/kWh)')}
+        <label>Zahlt MwSt aus?<select id="e-mwst"><option value="0">nein</option><option value="1">ja, + 19 %</option></select></label></div>
+      <div class="zwei">${feld('e-ewestart', 'Abrechnung von', `${jahr}-01-01`, 'datum')}${feld('e-eweende', 'bis', `${jahr}-12-31`, 'datum')}</div>
+      <div class="zwei">${feld('e-eweabschlag', 'Abschlag (€/Monat)')}${feld('e-eweerster', 'Erster Abschlag', '', 'datum')}</div>
+      ${feld('e-ewe-letzter', 'Letzter Abschlag', '', 'datum')}
+    </section>
+    <section class="karte" data-wenn="e-unterwegs">
+      <h2>Laden unterwegs</h2>
+      ${feld('e-uanb', 'Ladeanbieter', '', 'text')}
+      <div class="zwei">${feld('e-uct', 'Preis (ct/kWh)')}${feld('e-ugrund', 'Grundgebühr (€/Monat)', '0')}</div>
+    </section>
+    <button class="primaer" id="einr-fertig">Fertig – los geht's</button>
+    <label class="sekundaer datei">Stattdessen Sicherung importieren<input type="file" id="import" accept=".json,application/json"></label>
+    <div id="s-meldung" class="meldung"></div>
+    <p class="fuss">Version ${VERSION}</p>`;
+  einrichtungSichtbarkeit();
+  window.scrollTo(0, 0);
+}
+
+function einrichtungSichtbarkeit() {
+  document.querySelectorAll('[data-wenn]').forEach((el) => { el.hidden = !document.getElementById(el.dataset.wenn)?.checked; });
+}
+
+async function einrichtungFertig() {
+  const v = (id) => document.getElementById(id)?.value ?? '';
+  const n = (id) => { const x = zahl(v(id)); return Number.isNaN(x) ? 0 : x; };
+  const an = (id) => !!document.getElementById(id)?.checked;
+  const c = {
+    pv: an('e-pv'), wp: an('e-wp'), wallbox: an('e-wallbox'), unterwegs: an('e-unterwegs'),
+    startDatum: v('e-start') || heute(), startBezug: n('e-sbezug'), startEinspeisung: n('e-sein'), startWp: n('e-swp'),
+    anbieter: v('e-anbieter').trim(), arbeitspreisCent: n('e-ct'), grundpreisJahr: n('e-grund'),
+    abschlagEuro: n('e-abschlag'), ersterAbschlag: v('e-ersterabschlag'), abrechnungStart: v('e-abrstart') || heute(),
+    netzbetreiber: v('e-netz').trim(), verguetungNettoCent: n('e-verg'), mwst: v('e-mwst') === '1',
+    eweStart: v('e-ewestart'), eweEnde: v('e-eweende'), eweAbschlag: n('e-eweabschlag'),
+    eweErsterAbschlag: v('e-eweerster'), eweLetzterAbschlag: v('e-ewe-letzter'),
+    unterwegsAnbieter: v('e-uanb').trim(), unterwegsCent: n('e-uct'), unterwegsGrund: n('e-ugrund'),
+  };
+  if (!(c.arbeitspreisCent > 0)) {
+    const m = document.getElementById('s-meldung');
+    m.textContent = 'Bitte mindestens den Arbeitspreis des Stromanbieters eintragen.'; m.className = 'meldung fehler';
+    document.getElementById('e-ct').focus();
+    return;
+  }
+  state = neuerState(c);
+  await sichern();
+  document.body.classList.remove('einrichtung');
+  form = null;
+  zeige('eingabe');
 }
 
 // ---------- Navigation & Ereignisse ----------
@@ -641,6 +756,7 @@ document.querySelector('.tabs').addEventListener('click', (ev) => {
 $view.addEventListener('click', async (ev) => {
   const t = ev.target.closest('button');
   if (!t) return;
+  if (t.id === 'einr-fertig') { await einrichtungFertig(); return; }
   if (t.dataset.gotoVerlauf) { verlaufQuelle = t.dataset.gotoVerlauf; zeige('verlauf'); return; }
   if (t.dataset.quelle) { form = neuesForm(t.dataset.quelle); viewEingabe(); return; }
   if (t.dataset.modus) { form.modus = t.dataset.modus; viewEingabe(); return; }
@@ -659,7 +775,7 @@ $view.addEventListener('click', async (ev) => {
   }
   if (t.dataset.tneu) {
     const b = t.dataset.tneu;
-    const neu = { id: neueId(), bereich: b, anbieter: b === 'haus' ? 'E.ON' : 'EnBW', name: '', gueltigAb: heute(), arbeitspreisCent: 0 };
+    const neu = { id: neueId(), bereich: b, anbieter: b === 'haus' ? anbieterHaus() : anbieterUnterwegs(), name: '', gueltigAb: heute(), arbeitspreisCent: 0 };
     neu[b === 'haus' ? 'grundpreisJahr' : 'grundpreisMonat'] = 0;
     state.tarife.push(neu); await sichern(); viewEinstellungen(); return;
   }
@@ -671,7 +787,7 @@ $view.addEventListener('click', async (ev) => {
   if (t.id === 'export-csv') { await teilenOderLaden(`strom-tagebuch-${heute()}.csv`, csv(), 'text/csv'); return; }
   if (t.id === 'alles-loeschen') {
     if (confirm('Wirklich ALLE Einträge und Einstellungen löschen?') && confirm('Sicher? Das lässt sich nicht rückgängig machen – vorher exportieren!')) {
-      state = defaultState(); await sichern(); viewEinstellungen();
+      state = null; await speichern(null); viewEinrichtung();
     }
   }
 });
@@ -685,8 +801,9 @@ $view.addEventListener('input', (ev) => {
 
 $view.addEventListener('change', async (ev) => {
   const el = ev.target;
+  if (tab === 'einrichtung' && el.type === 'checkbox') { einrichtungSichtbarkeit(); return; }
   if (el.id === 'import' && el.files?.[0]) { await importieren(el.files[0]); el.value = ''; return; }
-  if (tab === 'einstellungen' && (el.dataset.e || el.dataset.w || el.dataset.q || el.dataset.t)) await einstellungAendern(el);
+  if (tab === 'einstellungen' && (el.dataset.e || el.dataset.w || el.dataset.q || el.dataset.t || el.dataset.qa)) await einstellungAendern(el);
 });
 
 $view.addEventListener('keydown', async (ev) => {
@@ -695,8 +812,8 @@ $view.addEventListener('keydown', async (ev) => {
 
 // ---------- Start ----------
 (async function start() {
-  state = migrieren((await laden()) || defaultState());
+  const gespeichert = await laden();
   dauerhaftAnfragen();
-  zeige('uebersicht');
+  if (gespeichert) { state = migrieren(gespeichert); zeige('uebersicht'); } else viewEinrichtung();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
