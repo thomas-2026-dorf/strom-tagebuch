@@ -213,10 +213,18 @@ function kachel(M, R, qq) {
 }
 
 // ---------- Eingabe ----------
-function viewEingabe() {
+function viewEingabe(bestaetigung = null) {
   if (!form) form = neuesForm();
   const q = quelle(form.quelleId);
-  const chips = state.quellen.map((x) => `<button class="chip ${x.id === form.quelleId ? 'an' : ''}" data-quelle="${x.id}">${esc(x.kurz)}</button>`).join('');
+  const chips = state.quellen.map((x) => {
+    const n = eintraegeVon(x.id).length;
+    return `<button class="chip ${x.id === form.quelleId ? 'an' : ''}" data-quelle="${x.id}">${esc(x.kurz)}${n ? ` <span class="anzahl">${n}</span>` : ''}</button>`;
+  }).join('');
+  const box = bestaetigung ? `
+    <section class="karte bestaetigt">
+      <div class="b-haken">✓</div>
+      <div><div class="b-titel">${esc(bestaetigung.titel)}</div><div class="b-text">${esc(bestaetigung.text)}</div></div>
+    </section>` : '';
 
   let felder = '';
   if (q.art === 'zaehlerstand') {
@@ -238,7 +246,7 @@ function viewEingabe() {
       <div id="f-info" class="info"></div>`;
   }
 
-  $view.innerHTML = `
+  $view.innerHTML = box + `
     <section class="karte">
       <div class="chips">${chips}</div>
       <h2>${esc(q.name)}${form.editId ? ' <span class="badge">bearbeiten</span>' : ''}</h2>
@@ -247,6 +255,10 @@ function viewEingabe() {
       <button class="primaer" id="f-speichern">${form.editId ? 'Änderung speichern' : 'Speichern'}</button>
       ${form.editId ? '<button class="sekundaer" id="f-abbrechen">Abbrechen</button>' : ''}
       <div id="f-meldung" class="meldung"></div>
+    </section>
+    <section class="karte">
+      <h2>Gespeichert bei ${esc(q.kurz)}</h2>
+      <div class="liste">${eintraegeListe(q, bestaetigung?.id)}</div>
     </section>`;
   eingabeInfo();
 }
@@ -320,27 +332,29 @@ async function eingabeSpeichern() {
       const b = zahl(form.betrag);
       e.betragEuro = Number.isNaN(b) ? tarifVorschlag() : b;
     }
-    if (form.modus === 'monat') {
-      const gleich = state.eintraege.find((x) => x.quelleId === q.id && x.vonDatum === von && x.id !== form.editId && x.datum.slice(0, 7) === von.slice(0, 7));
-      if (gleich) {
-        if (!confirm(`Für ${monatDe(form.monat)} gibt es schon einen Eintrag (${f2.format(gleich.wert)} kWh). Ersetzen?`)) return;
-        state.eintraege = state.eintraege.filter((x) => x !== gleich);
-      }
+    // Gleicher Monat bzw. gleicher Zeitraum schon vorhanden? -> ersetzen statt doppelt
+    const gleich = state.eintraege.find((x) => x.quelleId === q.id && x.id !== form.editId && x.vonDatum === von
+      && (form.modus === 'monat' ? x.datum.slice(0, 7) === von.slice(0, 7) : x.datum === bis));
+    if (gleich) {
+      const was = form.modus === 'monat' ? monatDe(form.monat) : `${datumDe(von)} – ${datumDe(bis)}`;
+      if (!confirm(`Für ${was} gibt es schon einen Eintrag (${f2.format(gleich.wert)} kWh). Ersetzen?`)) return;
+      state.eintraege = state.eintraege.filter((x) => x !== gleich);
     }
   }
-  if (form.editId) {
+  const warEdit = !!form.editId;
+  const id = form.editId || neueId();
+  if (warEdit) {
     const i = state.eintraege.findIndex((x) => x.id === form.editId);
-    if (i >= 0) state.eintraege[i] = { ...e, id: form.editId };
+    if (i >= 0) state.eintraege[i] = { ...e, id };
   } else {
-    state.eintraege.push({ ...e, id: neueId() });
+    state.eintraege.push({ ...e, id });
   }
   await sichern();
-  const warEdit = !!form.editId;
+  let text = `${q.kurz}: ${f2.format(e.wert)} kWh – ${eintragTitel(q, e)}`;
+  if (e.betragEuro != null) text += ` – ${eur.format(e.betragEuro)}`;
   form = neuesForm(q.id);
-  viewEingabe();
-  const m = document.getElementById('f-meldung');
-  m.textContent = warEdit ? 'Geändert ✓' : 'Gespeichert ✓';
-  m.className = 'meldung ok';
+  viewEingabe({ id, titel: warEdit ? 'Änderung gespeichert' : 'Gespeichert', text });
+  window.scrollTo(0, 0);
 }
 
 // ---------- Verlauf ----------
@@ -360,22 +374,7 @@ function viewVerlauf() {
   const legende = ms.some((m) => m.verteilt || !m.voll)
     ? `<p class="hinweis">${ms.some((m) => m.verteilt) ? '<span class="punkt verteilt"></span> nach Jahreszeit verteilt (Ablesungen liegen weit auseinander) ' : ''}${ms.some((m) => !m.voll) ? '<span class="punkt teil"></span> Monat nicht vollständig' : ''}</p>` : '';
 
-  const es = eintraegeVon(q.id).sort((x, y) => (x.datum < y.datum ? 1 : x.datum > y.datum ? -1 : 0));
-  const liste = es.length ? es.map((e, i) => {
-    let haupt, neben = '';
-    if (q.art === 'zaehlerstand') {
-      const vor = es[i + 1] || { datum: q.startDatum, wert: Number(q.startStand) || 0 };
-      haupt = `${f2.format(e.wert)} kWh`;
-      neben = `+${f1.format(e.wert - vor.wert)} kWh seit ${datumDe(vor.datum)}`;
-      return eintragZeile(e, datumDe(e.datum), haupt, neben);
-    }
-    haupt = `${f2.format(e.wert)} kWh`;
-    if (e.betragEuro != null) neben = `${eur.format(e.betragEuro)}${e.wert > 0 ? ` · ${f1.format((e.betragEuro / e.wert) * 100)} ct/kWh` : ''}`;
-    const titel = e.vonDatum && e.vonDatum.slice(8) === '01' && e.vonDatum.slice(0, 7) === e.datum.slice(0, 7)
-      ? monatDe(e.vonDatum.slice(0, 7)) + (e.datum === letzterTag(e.datum.slice(0, 7)) ? '' : ` (bis ${datumDe(e.datum).slice(0, 6)})`)
-      : `${datumDe(e.vonDatum)} – ${datumDe(e.datum)}`;
-    return eintragZeile(e, titel, haupt, neben);
-  }).join('') : '<p class="leer">Noch keine Einträge.</p>';
+  const liste = eintraegeListe(q);
 
   const start = q.art === 'zaehlerstand' ? `<p class="klein">Gezählt seit ${datumDe(q.startDatum)} mit Startstand ${f2.format(Number(q.startStand) || 0)} kWh</p>` : '';
 
@@ -385,9 +384,32 @@ function viewVerlauf() {
     <section class="karte"><h2>Einträge</h2>${start}<div class="liste">${liste}</div></section>`;
 }
 
-function eintragZeile(e, titel, haupt, neben) {
-  return `<div class="eintrag">
-    <div class="e-text"><div class="e-titel">${esc(titel)}</div><div class="e-haupt">${esc(haupt)}</div>
+function eintragTitel(q, e) {
+  if (q.art === 'zaehlerstand') return datumDe(e.datum);
+  return e.vonDatum && e.vonDatum.slice(8) === '01' && e.vonDatum.slice(0, 7) === e.datum.slice(0, 7)
+    ? monatDe(e.vonDatum.slice(0, 7)) + (e.datum === letzterTag(e.datum.slice(0, 7)) ? '' : ` (bis ${datumDe(e.datum).slice(0, 6)})`)
+    : `${datumDe(e.vonDatum)} – ${datumDe(e.datum)}`;
+}
+
+// Liste aller Einträge einer Quelle, neueste zuerst; "neuId" wird hervorgehoben.
+function eintraegeListe(q, neuId = null) {
+  const es = eintraegeVon(q.id).sort((x, y) => (x.datum < y.datum ? 1 : x.datum > y.datum ? -1 : 0));
+  if (!es.length) return '<p class="leer">Noch keine Einträge.</p>';
+  return es.map((e, i) => {
+    let neben = '';
+    if (q.art === 'zaehlerstand') {
+      const vor = es[i + 1] || { datum: q.startDatum, wert: Number(q.startStand) || 0 };
+      neben = `+${f1.format(e.wert - vor.wert)} kWh seit ${datumDe(vor.datum)}`;
+    } else if (e.betragEuro != null) {
+      neben = `${eur.format(e.betragEuro)}${e.wert > 0 ? ` · ${f1.format((e.betragEuro / e.wert) * 100)} ct/kWh` : ''}`;
+    }
+    return eintragZeile(e, eintragTitel(q, e), `${f2.format(e.wert)} kWh`, neben, e.id === neuId);
+  }).join('');
+}
+
+function eintragZeile(e, titel, haupt, neben, neu = false) {
+  return `<div class="eintrag ${neu ? 'neu' : ''}">
+    <div class="e-text"><div class="e-titel">${esc(titel)}${neu ? ' <span class="badge">neu</span>' : ''}</div><div class="e-haupt">${esc(haupt)}</div>
     ${neben ? `<div class="e-neben">${esc(neben)}</div>` : ''}${e.notiz ? `<div class="e-notiz">${esc(e.notiz)}</div>` : ''}</div>
     <div class="e-knoepfe"><button data-edit="${e.id}">Ändern</button><button class="loeschen" data-del="${e.id}">Löschen</button></div>
   </div>`;
@@ -551,7 +573,8 @@ $view.addEventListener('click', async (ev) => {
     const e = state.eintraege.find((x) => x.id === t.dataset.del);
     if (e && confirm(`Eintrag vom ${datumDe(e.datum)} (${f2.format(e.wert)} kWh) löschen?`)) {
       state.eintraege = state.eintraege.filter((x) => x.id !== e.id);
-      await sichern(); viewVerlauf();
+      await sichern();
+      if (tab === 'eingabe') { if (form?.editId === e.id) form = neuesForm(form.quelleId); viewEingabe(); } else viewVerlauf();
     }
     return;
   }

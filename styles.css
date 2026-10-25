@@ -145,6 +145,23 @@ button.link.loeschen { color: var(--schlecht); }
 .meldung.ok { color: var(--gut); }
 .meldung.fehler { color: var(--schlecht); }
 
+.chip .anzahl {
+  display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 2px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; line-height: 20px; text-align: center;
+  background: var(--akzent-hell); color: var(--akzent);
+}
+.chip.an .anzahl { background: rgba(255,255,255,.25); color: #fff; }
+
+.bestaetigt { display: flex; align-items: center; gap: 14px; background: var(--gut-bg); color: var(--text); animation: rein .25s ease-out; }
+.b-haken {
+  flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--gut); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700;
+}
+.b-titel { font-weight: 700; color: var(--gut); font-size: 17px; }
+.b-text { font-size: 15px; font-variant-numeric: tabular-nums; }
+@keyframes rein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.eintrag.neu { background: var(--gut-bg); margin: 0 -10px; padding: 10px; border-radius: 10px; }
+
 .tarif { border-bottom: 1px solid var(--linie); padding-bottom: 8px; margin-bottom: 4px; }
 
 /* Verlauf */
