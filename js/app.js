@@ -148,19 +148,30 @@ function viewUebersicht() {
     </section>`;
 
   const bis = R.bezugBis != null ? datumDe(C.fromDay(R.bezugBis + 1)) : '–';
-  const saldoIst = kostenIst - R.einEuroIst;
+  const gezahlt = R.abschlaegeGezahlt * state.einstellungen.abschlagEuro;
   const bisher = `
     <section class="karte">
-      <h2>Bisher im Abrechnungsjahr</h2>
-      <div class="klein">Bezug bis Ablesung ${bis}; Grundpreis bis heute</div>
+      <h2>E.ON bisher im Abrechnungsjahr</h2>
+      <div class="klein">Bezug bis Ablesung ${bis} · Grundpreis bis heute</div>
       <div class="tabelle">
-        <div><span>Netzbezug 1.8.0</span><b>${f0.format(R.bezugIst)} kWh</b><em>${eur.format(R.arbeitIst)}</em></div>
-        <div><span>Grundpreis anteilig</span><b></b><em>${eur.format(R.grundIst)}</em></div>
-        <div><span>Einspeisung 2.8.0</span><b>${f0.format(R.einIst)} kWh</b><em class="plus">+${eur.format(R.einEuroIst)}</em></div>
-        <div class="summe"><span>Saldo (Kosten − Erlös)</span><b></b><em>${eur.format(saldoIst)}</em></div>
-        <div><span>Abschläge gezahlt</span><b>${R.abschlaegeGezahlt} von 12</b><em>${eur.format(R.abschlaegeGezahlt * state.einstellungen.abschlagEuro)}</em></div>
+        <div><span>Netzbezug</span><b>${f0.format(R.bezugIst)} kWh</b><em>${eur.format(R.arbeitIst)}</em></div>
+        <div><span>Grundpreis</span><b></b><em>${eur.format(R.grundIst)}</em></div>
+        <div class="summe"><span>Kosten bisher</span><b></b><em>${eur.format(kostenIst)}</em></div>
+        <div><span>Abschläge gezahlt</span><b>${R.abschlaegeGezahlt} von 12</b><em>${eur.format(gezahlt)}</em></div>
+        <div class="summe"><span>${gezahlt - kostenIst >= 0 ? 'Zu viel gezahlt' : 'Zu wenig gezahlt'}</span><b></b><em class="${gezahlt - kostenIst >= 0 ? 'plus' : 'minus'}">${eur.format(Math.abs(gezahlt - kostenIst))}</em></div>
       </div>
       ${istVerteilt(M) ? '<p class="hinweis">Die Bezugswerte sind zwischen weit auseinanderliegenden Ablesungen nach Jahreszeit verteilt. Mit monatlichen Zählerständen wird es genauer.</p>' : ''}
+    </section>`;
+
+  const einGes = R.einIst + R.einProg;
+  const einspeisung = `
+    <section class="karte">
+      <h2>Einspeisung – Vergütung EWE</h2>
+      <div class="klein">Läuft über den Netzbetreiber, wird nicht mit E.ON verrechnet · ${f1.format(state.einstellungen.einspeiseverguetungCent)} ct/kWh</div>
+      <div class="tabelle">
+        <div><span>Bisher im Jahr</span><b>${f0.format(R.einIst)} kWh</b><em class="plus">${eur.format(R.einEuroIst)}</em></div>
+        <div><span>Hochrechnung Jahr</span><b>ca. ${f0.format(einGes)} kWh</b><em class="plus">ca. ${eur0.format(R.einEuroIst + R.einEuroProg)}</em></div>
+      </div>
     </section>`;
 
   const autoKwhIst = R.wbIst + R.enIst;
@@ -181,7 +192,7 @@ function viewUebersicht() {
 
   const kacheln = state.quellen.map((qq) => kachel(M, R, qq)).join('');
 
-  $view.innerHTML = hero + bisher + `<div class="kacheln">${kacheln}</div>` + auto;
+  $view.innerHTML = hero + bisher + einspeisung + `<div class="kacheln">${kacheln}</div>` + auto;
 }
 
 function spanneEuro(min, max) {

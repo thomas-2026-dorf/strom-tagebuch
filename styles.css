@@ -81,13 +81,14 @@ h3:first-of-type { margin-top: 4px; }
 .balken div { height: 100%; background: var(--strom); border-radius: 3px; }
 
 /* Tabellen */
-.tabelle div { display: grid; grid-template-columns: 1fr auto 92px; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--linie); font-size: 15px; }
+.tabelle div { display: grid; grid-template-columns: 1fr auto minmax(84px, auto); align-items: baseline; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--linie); font-size: 15px; }
 .tabelle div:last-child { border-bottom: 0; }
 .tabelle span { color: var(--leise); }
 .tabelle b, .tabelle em { font-style: normal; font-variant-numeric: tabular-nums; text-align: right; }
 .tabelle b { font-weight: 500; }
 .tabelle em { font-weight: 600; }
 .tabelle em.plus { color: var(--gut); }
+.tabelle em.minus { color: var(--schlecht); }
 .tabelle .summe span, .tabelle .summe em { color: var(--text); font-weight: 700; }
 .tabelle + .klein { margin-top: 8px; }
 
