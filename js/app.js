@@ -20,7 +20,8 @@ function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&am
 // "5.442,83" / "5442,83" / "5442.83" / "5.416" -> Zahl
 function zahl(s) {
   if (s == null) return NaN;
-  let t = String(s).trim().replace(/\s/g, '').replace('€', '');
+  // Einheiten und Leerzeichen ignorieren ("9250 kWh", "60,03 €")
+  let t = String(s).replace(/[^\d.,-]/g, '');
   if (t === '') return NaN;
   if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
   else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
