@@ -1,7 +1,7 @@
 import { laden, speichern, defaultState, neueId, dauerhaftAnfragen, migrieren } from './db.js';
 import * as C from './calc.js';
 
-const VERSION = '1.6';
+const VERSION = '1.7';
 
 // ---------- Hilfsfunktionen ----------
 const nf = (min, max) => new Intl.NumberFormat('de-DE', { minimumFractionDigits: min, maximumFractionDigits: max });
@@ -258,7 +258,7 @@ function kachel(M, R, qq) {
   const seit = `seit ${datumDe(C.fromDay(M.jahr.a)).slice(0, 6)}: ${qq.art === 'zaehlerstand' ? 'ca. ' : ''}${f0.format(map[qq.id] || 0)} kWh`;
   let gross, unter;
   if (qq.art === 'zaehlerstand') {
-    gross = letzter ? f2.format(letzter.wert) : '–';
+    gross = letzter ? (Number.isInteger(Number(letzter.wert)) ? f0 : f2).format(letzter.wert) : '–';
     unter = letzter ? `Zählerstand am ${datumDe(letzter.datum)}` : 'noch keine Ablesung';
   } else {
     gross = f2.format(es.reduce((s, e) => s + Number(e.wert), 0));
