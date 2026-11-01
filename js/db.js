@@ -48,11 +48,33 @@ export function eweStandard() {
   };
 }
 
+// Gas: eigener Zähler (m³), eigener Anbieter/Abrechnung
+export function gasQuelle(aktiv = true) {
+  return { id: 'gas', name: 'Gaszähler', kurz: 'Gas', art: 'zaehlerstand', profil: 'gas', einheit: 'm³', aktiv, startDatum: '', startStand: 0 };
+}
+export function gasStandard() {
+  return {
+    brennwert: 11.0,      // kWh/m³ – steht auf der Gasrechnung
+    zustandszahl: 0.95,   // steht auf der Gasrechnung
+    abrechnungStart: '',
+    abrechnungEnde: '',
+    abschlagEuro: 0,
+    ersterAbschlag: '',
+    letzterAbschlag: '',
+  };
+}
+export function gasTarif() {
+  return { id: neueId(), bereich: 'gas', anbieter: 'Gasanbieter', name: '', gueltigAb: '2000-01-01', arbeitspreisCent: 0, grundpreisJahr: 0 };
+}
+
 // Ältere Datenstände auf den aktuellen Aufbau bringen
 export function migrieren(state) {
   if (!state.ewe) state.ewe = eweStandard();
   if (!state.ewe.netzbetreiber) state.ewe.netzbetreiber = 'EWE';
   for (const q of state.quellen) if (q.aktiv === undefined) q.aktiv = true;
+  if (!state.quellen.some((q) => q.id === 'gas')) state.quellen.push(gasQuelle(true));
+  if (!state.gas) state.gas = gasStandard();
+  if (!state.tarife.some((t) => t.bereich === 'gas')) state.tarife.push(gasTarif());
   return state;
 }
 
@@ -68,12 +90,15 @@ export function neuerState(c) {
       zaehler('waermepumpe', 'Wärmepumpe', 'Wärmepumpe', 'wp', c.wp, c.startWp),
       { id: 'wallbox', name: 'Wallbox', kurz: 'Wallbox', art: 'verbrauch', profil: 'flach', aktiv: c.wallbox },
       { id: 'enbw', name: 'Laden unterwegs', kurz: 'Unterwegs', art: 'verbrauch', profil: 'flach', mitBetrag: true, aktiv: c.unterwegs },
+      gasQuelle(!!c.gas),
     ],
     eintraege: [],
     tarife: [
       { id: neueId(), bereich: 'haus', anbieter: c.anbieter || 'Stromanbieter', name: '', gueltigAb: '2000-01-01',
         arbeitspreisCent: c.arbeitspreisCent || 0, grundpreisJahr: c.grundpreisJahr || 0 },
+      gasTarif(),
     ],
+    gas: gasStandard(),
     einstellungen: {
       einspeiseverguetungCent: 0,
       abrechnungStart: c.abrechnungStart,

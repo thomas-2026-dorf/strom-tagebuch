@@ -11,6 +11,8 @@ export const PROFILE = {
   pv:     [2, 4, 8, 12, 14, 14, 14, 12, 9, 6, 3, 2],
   // Netzbezug mit Wärmepumpe: Winter hoch, Sommer niedrig
   bezug:  [15, 12, 10, 6, 4, 3, 3, 3, 4, 8, 13, 15],
+  // Gasheizung inkl. Warmwasser
+  gas:    [16, 14, 12, 8, 5, 3, 2.5, 2.5, 3.5, 7, 12, 15],
 };
 
 export function toDay(s) {
@@ -49,7 +51,8 @@ export function serie(quelle, eintraege) {
 
   if (quelle.art === 'zaehlerstand') {
     const byDay = new Map();
-    byDay.set(toDay(quelle.startDatum), Number(quelle.startStand) || 0);
+    // Ohne Startdatum gilt die erste Ablesung als Start
+    if (quelle.startDatum) byDay.set(toDay(quelle.startDatum), Number(quelle.startStand) || 0);
     for (const e of eintraege) byDay.set(toDay(e.datum), Number(e.wert));
     const pts = [...byDay.entries()].sort((a, b) => a[0] - b[0]);
     for (let i = 0; i < pts.length - 1; i++) {

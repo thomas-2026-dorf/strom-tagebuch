@@ -1,7 +1,7 @@
 import { laden, speichern, neueId, dauerhaftAnfragen, migrieren, neuerState } from './db.js';
 import * as C from './calc.js';
 
-const VERSION = '2.0';
+const VERSION = '2.1';
 
 // ---------- Hilfsfunktionen ----------
 const nf = (min, max) => new Intl.NumberFormat('de-DE', { minimumFractionDigits: min, maximumFractionDigits: max });
@@ -45,6 +45,15 @@ function aktiveQuellen() { return state.quellen.filter((q) => q.aktiv !== false)
 function anbieterHaus() { const t = C.tarifAm(state.tarife, 'haus', C.toDay(heute())); return t?.anbieter || 'Stromanbieter'; }
 function anbieterUnterwegs() { const t = C.tarifAm(state.tarife, 'auswaerts', C.toDay(heute())); return t?.anbieter || 'Ladeanbieter'; }
 function netzbetreiber() { return state.ewe?.netzbetreiber || 'Netzbetreiber'; }
+function anbieterGas() { const t = C.tarifAm(state.tarife, 'gas', C.toDay(heute())); return t?.anbieter || 'Gasanbieter'; }
+function einheit(q) { return q?.einheit || 'kWh'; }
+// Umrechnung Gas: m³ × Brennwert × Zustandszahl = kWh
+function gasFaktor() {
+  const g = state.gas || {};
+  if (einheit(quelle('gas')) === 'kWh') return 1;
+  return (Number(g.brennwert) || 0) * (Number(g.zustandszahl) || 0);
+}
+function gasZeitraumGesetzt() { return !!(state.gas?.abrechnungStart && state.gas?.abrechnungEnde && state.gas.abrechnungEnde >= state.gas.abrechnungStart); }
 function eintraegeVon(id) { return state.eintraege.filter((e) => e.quelleId === id); }
 
 async function sichern() { await speichern(state); }
@@ -172,6 +181,7 @@ function viewUebersicht() {
     </section>`;
 
   const einspeisung = aktiv('einspeisung') ? eweKarte(M) : '';
+  const gas = aktiv('gas') ? gasKarte(M) : '';
 
   const autoKwhIst = R.wbIst + R.enIst;
   const autoEuroIst = R.wbEuroIst + R.enEuroIst + R.enGrundIst;
@@ -191,7 +201,7 @@ function viewUebersicht() {
 
   const kacheln = aktiveQuellen().map((qq) => kachel(M, R, qq)).join('');
 
-  $view.innerHTML = hero + bisher + einspeisung + `<div class="kacheln">${kacheln}</div>` + auto + `<p class="fuss">Version ${VERSION}</p>`;
+  $view.innerHTML = hero + bisher + einspeisung + gas + `<div class="kacheln">${kacheln}</div>` + auto + `<p class="fuss">Version ${VERSION}</p>`;
 }
 
 function eweVerguetung() {
@@ -212,15 +222,7 @@ function eweKarte(M) {
   const sp = Q.kal ? Q.kal.spanne : 0.2;
   const [kMin, kMax] = spanne(ist, prog, sp);
   // Abschläge monatlich vom ersten bis zum letzten
-  const termine = [];
-  if (W.ersterAbschlag && W.letzterAbschlag) {
-    const [y, m, dd] = W.ersterAbschlag.split('-').map(Number);
-    for (let i = 0; i < 24; i++) {
-      const dt = new Date(Date.UTC(y, m - 1 + i, dd)).toISOString().slice(0, 10);
-      if (dt > W.letzterAbschlag) break;
-      termine.push(dt);
-    }
-  }
+  const termine = abschlagTermine(W.ersterAbschlag, W.letzterAbschlag);
   const abschlagSumme = termine.length * (Number(W.abschlagEuro) || 0);
   const erhalten = termine.filter((d) => C.toDay(d) <= M.t).length;
   const gut = (ist + prog) * v;
@@ -245,6 +247,92 @@ function eweKarte(M) {
     </section>`;
 }
 
+function abschlagTermine(erster, letzter) {
+  const termine = [];
+  if (!erster || !letzter) return termine;
+  const [y, m, dd] = erster.split('-').map(Number);
+  for (let i = 0; i < 36; i++) {
+    const dt = new Date(Date.UTC(y, m - 1 + i, dd)).toISOString().slice(0, 10);
+    if (dt > letzter) break;
+    termine.push(dt);
+  }
+  return termine;
+}
+
+function gasKarte(M) {
+  const G = state.gas;
+  const Q = M.q.gas;
+  const q = Q.quelle;
+  const eh = einheit(q);
+  const f = gasFaktor();
+  const titel = `<h2>Gas – ${esc(anbieterGas())}</h2>`;
+  const tarif = C.tarifAm(state.tarife, 'gas', M.t);
+  if (Q.s.first == null) {
+    return `<section class="karte">${titel}
+      <p class="klein">Noch keine Werte. Trag unter <b>Eingabe → ${esc(q.kurz)}</b> deinen Gaszählerstand ein. Ab der zweiten Ablesung rechnet die App den Verbrauch aus.</p>
+      ${!gasZeitraumGesetzt() || !(tarif?.arbeitspreisCent > 0) ? '<p class="klein">Unter <b>Einstellungen → Gas</b> noch Anbieter, Preis, Abrechnungszeitraum und Abschlag eintragen.</p>' : ''}
+    </section>`;
+  }
+  if (!gasZeitraumGesetzt() || !(tarif?.arbeitspreisCent > 0)) {
+    const m = C.monate(Q);
+    const letzte = m.slice(-1)[0];
+    return `<section class="karte">${titel}
+      <p class="klein">Für die Kosten fehlen noch Angaben: unter <b>Einstellungen → Gas</b> Preis, Abrechnungszeitraum und Abschlag eintragen.</p>
+      ${letzte ? `<div class="tabelle"><div><span>Verbrauch ${monatDe(letzte.monat)}</span><b>${f0.format(letzte.kwh)} ${eh}</b><em>${eh === 'm³' && f ? `${f0.format(letzte.kwh * f)} kWh` : ''}</em></div></div>` : ''}
+    </section>`;
+  }
+  const a = C.toDay(G.abrechnungStart), b = C.toDay(G.abrechnungEnde);
+  const tageJahr = b - a + 1;
+  let istM = 0, progM = 0, arbeitIst = 0, arbeitProg = 0, grundIst = 0, grundProg = 0, bis = null;
+  let vorM = 0, arbeitVor = 0; // vor der ersten Ablesung (geschätzt)
+  for (let d = a; d <= b; d++) {
+    const t = C.tarifAm(state.tarife, 'gas', d);
+    const preis = t ? t.arbeitspreisCent / 100 : 0;
+    const grund = t ? (Number(t.grundpreisJahr) || 0) / Math.max(365, tageJahr) : 0;
+    if (d <= M.t) grundIst += grund; else grundProg += grund;
+    if (d < Q.s.first) {
+      const m = Q.kal ? Q.kal.k * C.gewicht(q.profil, d) : 0;
+      vorM += m; arbeitVor += m * f * preis;
+      continue;
+    }
+    const x = C.tag(Q, d);
+    if (x.ist) { istM += x.kwh; arbeitIst += x.kwh * f * preis; bis = d; }
+    else { progM += x.kwh; arbeitProg += x.kwh * f * preis; }
+  }
+  // geschätzter Zeitraum vor der ersten Ablesung zählt zur Hochrechnung
+  progM += vorM; arbeitProg += arbeitVor;
+  const sp = Q.kal ? Q.kal.spanne : 0.2;
+  const [mMin, mMax] = spanne(istM, progM, sp);
+  const kostenIst = arbeitIst + grundIst;
+  const kostenGes = kostenIst + arbeitProg + grundProg;
+  const [kMin, kMax] = spanne(kostenIst + grundProg, arbeitProg, sp);
+  const termine = abschlagTermine(G.ersterAbschlag, G.letzterAbschlag);
+  const abschlagSumme = termine.length * (Number(G.abschlagEuro) || 0);
+  const gezahlt = termine.filter((d) => C.toDay(d) <= M.t).length;
+  const erg = kostenGes - abschlagSumme, eMin = kMin - abschlagSumme, eMax = kMax - abschlagSumme;
+  const nach = erg > 0;
+  const mengen = (m) => eh === 'm³' ? `${f0.format(m)} m³ · ${f0.format(m * f)} kWh` : `${f0.format(m)} kWh`;
+  const unterwegs = M.t < a ? 'Zeitraum hat noch nicht begonnen' : M.t > b ? 'Zeitraum ist abgelaufen – neuen in den Einstellungen eintragen' : `noch ${b - M.t} Tage`;
+  return `
+    <section class="karte">
+      ${titel}
+      <div class="klein">Zeitraum ${datumDe(G.abrechnungStart)} – ${datumDe(G.abrechnungEnde)} · ${unterwegs}<br>
+        ${f2.format(tarif.arbeitspreisCent)} ct/kWh · Grundpreis ${eur.format(Number(tarif.grundpreisJahr) || 0)}/Jahr${eh === 'm³' ? ` · 1 m³ = ${f2.format(f)} kWh` : ''}</div>
+      <div class="tabelle">
+        <div><span>Verbrauch bisher${bis != null ? ` (bis ${datumDe(C.fromDay(bis + 1)).slice(0, 6)})` : ''}</span><b>${mengen(istM)}</b><em>${eur.format(arbeitIst)}</em></div>
+        <div><span>Grundpreis bis heute</span><b></b><em>${eur.format(grundIst)}</em></div>
+        <div class="summe"><span>Kosten bisher</span><b></b><em>${eur.format(kostenIst)}</em></div>
+        <div><span>Abschläge gezahlt</span><b>${gezahlt} von ${termine.length}</b><em>${eur.format(gezahlt * (Number(G.abschlagEuro) || 0))}</em></div>
+        <div><span>Hochrechnung bis ${datumDe(G.abrechnungEnde).slice(0, 6)}</span><b>${eh === 'm³' ? `${f0.format(mMin)}–${f0.format(mMax)} m³` : `${f0.format(mMin)}–${f0.format(mMax)} kWh`}</b><em>ca. ${eur0.format(kostenGes)}</em></div>
+        <div><span>Abschläge gesamt</span><b>${termine.length} × ${eur0.format(Number(G.abschlagEuro) || 0)}</b><em>${eur.format(abschlagSumme)}</em></div>
+        <div class="summe"><span>${nach ? 'Nachzahlung voraussichtlich' : 'Guthaben voraussichtlich'}</span><b></b><em class="${nach ? 'minus' : 'plus'}">ca. ${eur0.format(Math.abs(erg))}</em></div>
+      </div>
+      <div class="klein">Spanne ${spanneEuro(eMin, eMax)}</div>
+      ${vorM > 0 ? `<p class="hinweis">Vor deiner ersten Ablesung (${datumDe(C.fromDay(Q.s.first))}) ist der Verbrauch geschätzt: ca. ${f0.format(vorM)} ${eh} / ${eur0.format(arbeitVor)}. Genauer wird es, wenn du den Zählerstand vom ${datumDe(G.abrechnungStart)} einträgst (steht auf der letzten Gasrechnung).</p>` : ''}
+      ${Q.kal && Q.kal.tage < 300 ? '<p class="hinweis">Noch wenig Gasdaten – die Hochrechnung verteilt den Verbrauch nach einem typischen Heizprofil (Winter hoch, Sommer nur Warmwasser). Mit jeder Monatsablesung wird sie genauer.</p>' : ''}
+    </section>`;
+}
+
 function spanneEuro(min, max) {
   const t = (v) => (v >= 0 ? `${eur0.format(v)} Nachz.` : `${eur0.format(-v)} Guth.`);
   return `${t(min)} bis ${t(max)}`;
@@ -261,7 +349,15 @@ function kachel(M, R, qq) {
   const es = eintraegeVon(qq.id).sort((x, y) => (x.datum < y.datum ? 1 : -1));
   const letzter = es[0];
   const map = { bezug: R.bezugIst, einspeisung: R.einIst, waermepumpe: R.wpIst, wallbox: R.wbIst, enbw: R.enIst };
-  const seit = `seit ${datumDe(C.fromDay(M.jahr.a)).slice(0, 6)}: ${qq.art === 'zaehlerstand' ? 'ca. ' : ''}${f0.format(map[qq.id] || 0)} kWh`;
+  const eh = einheit(qq);
+  let seit = `seit ${datumDe(C.fromDay(M.jahr.a)).slice(0, 6)}: ${qq.art === 'zaehlerstand' ? 'ca. ' : ''}${f0.format(map[qq.id] || 0)} ${eh}`;
+  if (!(qq.id in map)) {
+    // eigene Quellen (z. B. Gas): Verbrauch im eigenen Abrechnungszeitraum
+    const von = qq.id === 'gas' && gasZeitraumGesetzt() ? C.toDay(state.gas.abrechnungStart) : M.jahr.a;
+    let summe = 0;
+    for (let d = von; d <= M.t; d++) { const x = C.tag(Q, d); if (x.ist) summe += x.kwh; }
+    seit = `seit ${datumDe(C.fromDay(von)).slice(0, 6)}: ca. ${f0.format(summe)} ${eh}`;
+  }
   let gross, unter;
   if (qq.art === 'zaehlerstand') {
     gross = letzter ? (Number.isInteger(Number(letzter.wert)) ? f0 : f2).format(letzter.wert) : '–';
@@ -272,9 +368,9 @@ function kachel(M, R, qq) {
   }
   return `<button class="kachel" data-goto-verlauf="${qq.id}">
     <span class="k-name">${esc(qq.kurz)}</span>
-    <span class="k-wert">${gross} <small>kWh</small></span>
+    <span class="k-wert">${gross} <small>${eh}</small></span>
     <span class="k-sub">${esc(unter)}</span>
-    ${letzter ? `<span class="k-seit">${esc(seit)}</span>` : ''}
+    ${letzter && Q.s.first != null ? `<span class="k-seit">${esc(seit)}</span>` : ''}
   </button>`;
 }
 
@@ -296,7 +392,7 @@ function viewEingabe(bestaetigung = null) {
   if (q.art === 'zaehlerstand') {
     felder = `
       <label>Datum<input type="date" id="f-datum" value="${form.datum}"></label>
-      <label>Zählerstand (kWh)<input id="f-wert" inputmode="decimal" class="gross-eingabe" placeholder="0" value="${esc(form.wert)}" autocomplete="off"></label>
+      <label>Zählerstand (${einheit(q)})<input id="f-wert" inputmode="decimal" class="gross-eingabe" placeholder="0" value="${esc(form.wert)}" autocomplete="off"></label>
       <div id="f-info" class="info"></div>`;
   } else {
     felder = `
@@ -351,17 +447,19 @@ function eingabeInfo() {
   if (!el) return;
   const q = quelle(form.quelleId);
   if (q.art === 'zaehlerstand') {
-    const vorher = [{ datum: q.startDatum, wert: Number(q.startStand) || 0, start: true },
+    const eh = einheit(q);
+    const vorher = [...(q.startDatum ? [{ datum: q.startDatum, wert: Number(q.startStand) || 0, start: true }] : []),
       ...eintraegeVon(q.id).filter((e) => e.id !== form.editId)]
       .filter((e) => e.datum < form.datum)
       .sort((x, y) => (x.datum < y.datum ? 1 : -1))[0];
-    if (!vorher) { el.innerHTML = ''; return; }
+    if (!vorher) { el.innerHTML = q.startDatum ? '' : 'Erste Ablesung – sie gilt als Startwert. Ab der nächsten wird der Verbrauch berechnet.'; return; }
     const w = zahl(form.wert);
-    let txt = `Vorheriger Stand: <b>${f2.format(vorher.wert)} kWh</b> am ${datumDe(vorher.datum)}${vorher.start ? ' (Start)' : ''}`;
+    let txt = `Vorheriger Stand: <b>${f2.format(vorher.wert)} ${eh}</b> am ${datumDe(vorher.datum)}${vorher.start ? ' (Start)' : ''}`;
     if (!Number.isNaN(w)) {
       const delta = w - vorher.wert;
       const tage = C.toDay(form.datum) - C.toDay(vorher.datum);
-      txt += `<br>Verbrauch seitdem: <b>${f1.format(delta)} kWh</b>${tage > 0 ? ` (Ø ${f1.format(delta / tage)} kWh/Tag)` : ''}`;
+      txt += `<br>Verbrauch seitdem: <b>${f1.format(delta)} ${eh}</b>${tage > 0 ? ` (Ø ${f1.format(delta / tage)} ${eh}/Tag)` : ''}`;
+      if (q.id === 'gas' && eh === 'm³' && gasFaktor() > 0) txt += ` ≈ ${f0.format(delta * gasFaktor())} kWh`;
       if (delta < 0) txt += '<br><span class="warn">Der Stand ist kleiner als vorher – Tippfehler?</span>';
     }
     el.innerHTML = txt;
@@ -418,7 +516,7 @@ async function eingabeSpeichern() {
     state.eintraege.push({ ...e, id });
   }
   await sichern();
-  let text = `${q.kurz}: ${f2.format(e.wert)} kWh – ${eintragTitel(q, e)}`;
+  let text = `${q.kurz}: ${f2.format(e.wert)} ${einheit(q)} – ${eintragTitel(q, e)}`;
   if (e.betragEuro != null) text += ` – ${eur.format(e.betragEuro)}`;
   form = neuesForm(q.id);
   viewEingabe({ id, titel: warEdit ? 'Änderung gespeichert' : 'Gespeichert', text });
@@ -445,11 +543,13 @@ function viewVerlauf() {
 
   const liste = eintraegeListe(q);
 
-  const start = q.art === 'zaehlerstand' ? `<p class="klein">Gezählt seit ${datumDe(q.startDatum)} mit Startstand ${f2.format(Number(q.startStand) || 0)} kWh</p>` : '';
+  const start = q.art !== 'zaehlerstand' ? '' : q.startDatum
+    ? `<p class="klein">Gezählt seit ${datumDe(q.startDatum)} mit Startstand ${f2.format(Number(q.startStand) || 0)} ${einheit(q)}</p>`
+    : '<p class="klein">Startwert ist die erste Ablesung.</p>';
 
   $view.innerHTML = `
     <div class="chips oben">${chips}</div>
-    <section class="karte"><h2>Monatsverbrauch ${esc(q.kurz)} (kWh)</h2>${balken}${legende}</section>
+    <section class="karte"><h2>Monatsverbrauch ${esc(q.kurz)} (${einheit(q)})</h2>${balken}${legende}</section>
     <section class="karte"><h2>Einträge</h2>${start}<div class="liste">${liste}</div></section>`;
 }
 
@@ -467,12 +567,12 @@ function eintraegeListe(q, neuId = null) {
   return es.map((e, i) => {
     let neben = '';
     if (q.art === 'zaehlerstand') {
-      const vor = es[i + 1] || { datum: q.startDatum, wert: Number(q.startStand) || 0 };
-      neben = `+${f1.format(e.wert - vor.wert)} kWh seit ${datumDe(vor.datum)}`;
+      const vor = es[i + 1] || (q.startDatum ? { datum: q.startDatum, wert: Number(q.startStand) || 0 } : null);
+      neben = vor ? `+${f1.format(e.wert - vor.wert)} ${einheit(q)} seit ${datumDe(vor.datum)}` : 'erste Ablesung (Start)';
     } else if (e.betragEuro != null) {
       neben = `${eur.format(e.betragEuro)}${e.wert > 0 ? ` · ${f1.format((e.betragEuro / e.wert) * 100)} ct/kWh` : ''}`;
     }
-    return eintragZeile(e, eintragTitel(q, e), `${f2.format(e.wert)} kWh`, neben, e.id === neuId);
+    return eintragZeile(e, eintragTitel(q, e), `${f2.format(e.wert)} ${einheit(q)}`, neben, e.id === neuId);
   }).join('');
 }
 
@@ -509,8 +609,8 @@ function viewEinstellungen() {
   const E = state.einstellungen;
   const zaehler = aktiveQuellen().filter((q) => q.art === 'zaehlerstand').map((q) => `
     <div class="zwei">
-      <label>${esc(q.kurz)} – gezählt seit<input type="date" data-q="${q.id}" data-feld="startDatum" value="${q.startDatum}"></label>
-      <label>Startstand (kWh)<input inputmode="decimal" data-q="${q.id}" data-feld="startStand" data-zahl value="${zahlFeld(q.startStand)}"></label>
+      <label>${esc(q.kurz)} – gezählt seit<input type="date" data-q="${q.id}" data-feld="startDatum" value="${q.startDatum || ''}"></label>
+      <label>Startstand (${einheit(q)})<input inputmode="decimal" data-q="${q.id}" data-feld="startStand" data-zahl value="${zahlFeld(q.startStand)}"></label>
     </div>`).join('');
 
   const tarifBlock = (bereich, titel, grundFeld, grundLabel) => {
@@ -558,10 +658,30 @@ function viewEinstellungen() {
       <label>Letzter Abschlag<input type="date" data-w="letzterAbschlag" value="${state.ewe.letzterAbschlag}"></label>
       <p class="klein">Nach jeder Einspeise-Abrechnung hier Zeitraum und neuen Abschlag eintragen.</p>
     </section>
+    ${aktiv('gas') ? `<section class="karte">
+      <h2>Gas (${esc(anbieterGas())})</h2>
+      <p class="klein">Anbieter, Arbeitspreis und Grundpreis stehen unten bei <b>Tarife → Gas</b>.</p>
+      <div class="zwei">
+        <label>Abrechnung von<input type="date" data-g="abrechnungStart" value="${state.gas.abrechnungStart}"></label>
+        <label>bis<input type="date" data-g="abrechnungEnde" value="${state.gas.abrechnungEnde}"></label>
+      </div>
+      <div class="zwei">
+        <label>Abschlag (€/Monat)<input inputmode="decimal" data-g="abschlagEuro" data-zahl value="${zahlFeld(state.gas.abschlagEuro)}"></label>
+        <label>Erster Abschlag<input type="date" data-g="ersterAbschlag" value="${state.gas.ersterAbschlag}"></label>
+      </div>
+      <label>Letzter Abschlag<input type="date" data-g="letzterAbschlag" value="${state.gas.letzterAbschlag}"></label>
+      <label>Zähler zeigt<select data-q="gas" data-feld="einheit"><option value="m³" ${einheit(quelle('gas')) === 'm³' ? 'selected' : ''}>Kubikmeter (m³)</option><option value="kWh" ${einheit(quelle('gas')) === 'kWh' ? 'selected' : ''}>Kilowattstunden (kWh)</option></select></label>
+      ${einheit(quelle('gas')) === 'm³' ? `<div class="zwei">
+        <label>Brennwert (kWh/m³)<input inputmode="decimal" data-g="brennwert" data-zahl value="${zahlFeld(state.gas.brennwert)}"></label>
+        <label>Zustandszahl<input inputmode="decimal" data-g="zustandszahl" data-zahl value="${zahlFeld(state.gas.zustandszahl)}"></label>
+      </div>
+      <p class="klein">Brennwert und Zustandszahl stehen auf der Gasrechnung. 1 m³ = ${f2.format(gasFaktor())} kWh.</p>` : ''}
+    </section>` : ''}
     <section class="karte">
       <h2>Tarife</h2>
       ${tarifBlock('haus', 'Strom zu Hause', 'grundpreisJahr', 'Grundpreis (€/Jahr)')}
       ${tarifBlock('auswaerts', 'Laden unterwegs', 'grundpreisMonat', 'Grundgebühr (€/Monat)')}
+      ${aktiv('gas') ? tarifBlock('gas', 'Gas', 'grundpreisJahr', 'Grundpreis (€/Jahr)') : ''}
     </section>
     <section class="karte">
       <h2>Quellen</h2>
@@ -597,9 +717,13 @@ async function einstellungAendern(el) {
     if (q.aktiv && q.art === 'zaehlerstand' && !q.startDatum) { q.startDatum = heute(); q.startStand = 0; }
     await sichern(); viewEinstellungen(); return;
   }
+  if (el.dataset.g) { state.gas[el.dataset.g] = v; await sichern(); if (['brennwert', 'zustandszahl'].includes(el.dataset.g)) viewEinstellungen(); return; }
   if (el.dataset.w) state.ewe[el.dataset.w] = el.dataset.w === 'mwst' ? el.value === '1' : v;
   else if (el.dataset.e) state.einstellungen[el.dataset.e] = v;
-  else if (el.dataset.q) { const q = quelle(el.dataset.q); if (q && v !== '') q[el.dataset.feld] = v; }
+  else if (el.dataset.q) {
+    const q = quelle(el.dataset.q); if (q && v !== '') q[el.dataset.feld] = v;
+    if (el.dataset.feld === 'einheit') { await sichern(); viewEinstellungen(); return; }
+  }
   else if (el.dataset.t) { const t = state.tarife.find((x) => x.id === el.dataset.t); if (t && v !== '') t[el.dataset.feld] = v; }
   await sichern();
 }
@@ -623,9 +747,9 @@ async function teilenOderLaden(dateiname, inhalt, typ) {
 function csv() {
   const z = (v) => (v == null || v === '' ? '' : String(v).replace('.', ','));
   const q = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
-  const zeilen = ['Quelle;von;Datum;kWh;Euro;Notiz'];
+  const zeilen = ['Quelle;von;Datum;Wert;Einheit;Euro;Notiz'];
   const sortiert = [...state.eintraege].sort((a, b) => (a.quelleId + a.datum < b.quelleId + b.datum ? -1 : 1));
-  for (const e of sortiert) zeilen.push([q(quelle(e.quelleId)?.name || e.quelleId), e.vonDatum || '', e.datum, z(e.wert), z(e.betragEuro), q(e.notiz)].join(';'));
+  for (const e of sortiert) zeilen.push([q(quelle(e.quelleId)?.name || e.quelleId), e.vonDatum || '', e.datum, z(e.wert), einheit(quelle(e.quelleId)), z(e.betragEuro), q(e.notiz)].join(';'));
   return '﻿' + zeilen.join('\n');
 }
 
@@ -669,6 +793,7 @@ function viewEinrichtung() {
       ${schalter('e-wp', 'Wärmepumpe mit eigenem Zähler', false)}
       ${schalter('e-wallbox', 'Wallbox zu Hause', false)}
       ${schalter('e-unterwegs', 'E-Auto unterwegs laden', false)}
+      ${schalter('e-gas', 'Gasheizung / Gaszähler', false)}
     </section>
     <section class="karte">
       <h2>Zähler</h2>
@@ -715,7 +840,7 @@ async function einrichtungFertig() {
   const n = (id) => { const x = zahl(v(id)); return Number.isNaN(x) ? 0 : x; };
   const an = (id) => !!document.getElementById(id)?.checked;
   const c = {
-    pv: an('e-pv'), wp: an('e-wp'), wallbox: an('e-wallbox'), unterwegs: an('e-unterwegs'),
+    pv: an('e-pv'), wp: an('e-wp'), wallbox: an('e-wallbox'), unterwegs: an('e-unterwegs'), gas: an('e-gas'),
     startDatum: v('e-start') || heute(), startBezug: n('e-sbezug'), startEinspeisung: n('e-sein'), startWp: n('e-swp'),
     anbieter: v('e-anbieter').trim(), arbeitspreisCent: n('e-ct'), grundpreisJahr: n('e-grund'),
     abschlagEuro: n('e-abschlag'), ersterAbschlag: v('e-ersterabschlag'), abrechnungStart: v('e-abrstart') || heute(),
@@ -775,8 +900,8 @@ $view.addEventListener('click', async (ev) => {
   }
   if (t.dataset.tneu) {
     const b = t.dataset.tneu;
-    const neu = { id: neueId(), bereich: b, anbieter: b === 'haus' ? anbieterHaus() : anbieterUnterwegs(), name: '', gueltigAb: heute(), arbeitspreisCent: 0 };
-    neu[b === 'haus' ? 'grundpreisJahr' : 'grundpreisMonat'] = 0;
+    const neu = { id: neueId(), bereich: b, anbieter: b === 'haus' ? anbieterHaus() : b === 'gas' ? anbieterGas() : anbieterUnterwegs(), name: '', gueltigAb: heute(), arbeitspreisCent: 0 };
+    neu[b === 'auswaerts' ? 'grundpreisMonat' : 'grundpreisJahr'] = 0;
     state.tarife.push(neu); await sichern(); viewEinstellungen(); return;
   }
   if (t.dataset.tdel) {
@@ -803,7 +928,7 @@ $view.addEventListener('change', async (ev) => {
   const el = ev.target;
   if (tab === 'einrichtung' && el.type === 'checkbox') { einrichtungSichtbarkeit(); return; }
   if (el.id === 'import' && el.files?.[0]) { await importieren(el.files[0]); el.value = ''; return; }
-  if (tab === 'einstellungen' && (el.dataset.e || el.dataset.w || el.dataset.q || el.dataset.t || el.dataset.qa)) await einstellungAendern(el);
+  if (tab === 'einstellungen' && (el.dataset.e || el.dataset.w || el.dataset.g || el.dataset.q || el.dataset.t || el.dataset.qa)) await einstellungAendern(el);
 });
 
 $view.addEventListener('keydown', async (ev) => {
