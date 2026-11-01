@@ -1,6 +1,6 @@
 {
-  "name": "Strom-Tagebuch",
-  "short_name": "Strom",
+  "name": "Wattkieker – Strom, Gas & Co. im Blick",
+  "short_name": "Wattkieker",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

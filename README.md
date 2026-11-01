@@ -1,4 +1,4 @@
-# Strom-Tagebuch
+# Wattkieker – Strom, Gas & Co. im Blick
 
 Private Web-App fürs iPhone: Stromverbrauch (Netzbezug, Einspeisung, Wärmepumpe, Wallbox, Laden unterwegs) erfassen und bis zur nächsten Jahresabrechnung hochrechnen.
 

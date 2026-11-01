@@ -1,7 +1,9 @@
 import { laden, speichern, neueId, dauerhaftAnfragen, migrieren, neuerState } from './db.js';
 import * as C from './calc.js';
 
-const VERSION = '2.1';
+const VERSION = '2.2';
+const APP = 'Wattkieker';
+const SPRUCH = 'Strom, Gas & Co. im Blick';
 
 // ---------- Hilfsfunktionen ----------
 const nf = (min, max) => new Intl.NumberFormat('de-DE', { minimumFractionDigits: min, maximumFractionDigits: max });
@@ -201,7 +203,7 @@ function viewUebersicht() {
 
   const kacheln = aktiveQuellen().map((qq) => kachel(M, R, qq)).join('');
 
-  $view.innerHTML = hero + bisher + einspeisung + gas + `<div class="kacheln">${kacheln}</div>` + auto + `<p class="fuss">Version ${VERSION}</p>`;
+  $view.innerHTML = hero + bisher + einspeisung + gas + `<div class="kacheln">${kacheln}</div>` + auto + `<p class="fuss"><b>${APP}</b> – ${esc(SPRUCH)} · Version ${VERSION}</p>`;
 }
 
 function eweVerguetung() {
@@ -698,14 +700,14 @@ function viewEinstellungen() {
     </section>
     <section class="karte">
       <h2>Daten sichern</h2>
-      <p class="klein">Die Daten liegen nur auf diesem iPhone. Sichere sie ab und zu als Datei (z. B. in „Dateien" oder per AirDrop auf den Mac).</p>
+      <p class="klein">Die Daten liegen nur auf diesem Gerät. Sichere sie ab und zu als Datei (z. B. in „Dateien" oder per AirDrop auf den Mac).</p>
       <button class="primaer" id="export-json">Sicherung exportieren (JSON)</button>
       <button class="sekundaer" id="export-csv">Einträge als Tabelle (CSV)</button>
       <label class="sekundaer datei">Sicherung importieren<input type="file" id="import" accept=".json,application/json"></label>
       <button class="link loeschen" id="alles-loeschen">Alle Daten löschen</button>
       <div id="s-meldung" class="meldung"></div>
     </section>
-    <p class="fuss">Strom-Tagebuch · Version ${VERSION} · ${state.eintraege.length} Einträge</p>`;
+    <p class="fuss"><b>${APP}</b> – ${esc(SPRUCH)}<br>Version ${VERSION} · ${state.eintraege.length} Einträge</p>`;
 }
 
 async function einstellungAendern(el) {
@@ -758,7 +760,7 @@ async function importieren(file) {
   try {
     const d = JSON.parse(await file.text());
     if (!Array.isArray(d.quellen) || !Array.isArray(d.eintraege) || !Array.isArray(d.tarife) || !d.einstellungen) throw new Error('Format');
-    if (state && !confirm(`Sicherung mit ${d.eintraege.length} Einträgen laden? Die aktuellen Daten auf dem iPhone werden ersetzt.`)) return;
+    if (state && !confirm(`Sicherung mit ${d.eintraege.length} Einträgen laden? Die aktuellen Daten auf diesem Gerät werden ersetzt.`)) return;
     state = migrieren(d);
     await sichern();
     document.body.classList.remove('einrichtung');
@@ -784,8 +786,9 @@ function viewEinrichtung() {
   const schalter = (id, text, an) => `<label class="haken"><input type="checkbox" id="${id}" ${an ? 'checked' : ''}> ${text}</label>`;
   $view.innerHTML = `
     <section class="karte">
-      <h2>Strom-Tagebuch einrichten</h2>
-      <p class="klein">Ein paar Angaben, dann kann es losgehen. Alles lässt sich später unter Einstellungen ändern. Die Daten bleiben nur auf diesem iPhone.</p>
+      <div class="marke"><img src="icons/icon-192.png" alt=""><div><div class="marke-name">${APP}</div><div class="marke-spruch">${esc(SPRUCH)}</div></div></div>
+      <h2>Einrichten</h2>
+      <p class="klein">Ein paar Angaben, dann kann es losgehen. Alles lässt sich später unter Einstellungen ändern. Die Daten bleiben nur auf diesem Gerät.</p>
     </section>
     <section class="karte">
       <h2>Was hast du?</h2>
@@ -826,7 +829,7 @@ function viewEinrichtung() {
     <button class="primaer" id="einr-fertig">Fertig – los geht's</button>
     <label class="sekundaer datei">Stattdessen Sicherung importieren<input type="file" id="import" accept=".json,application/json"></label>
     <div id="s-meldung" class="meldung"></div>
-    <p class="fuss">Version ${VERSION}</p>`;
+    <p class="fuss"><b>${APP}</b> · Version ${VERSION}</p>`;
   einrichtungSichtbarkeit();
   window.scrollTo(0, 0);
 }
@@ -908,8 +911,8 @@ $view.addEventListener('click', async (ev) => {
     if (confirm('Diesen Tarif löschen?')) { state.tarife = state.tarife.filter((x) => x.id !== t.dataset.tdel); await sichern(); viewEinstellungen(); }
     return;
   }
-  if (t.id === 'export-json') { await teilenOderLaden(`strom-tagebuch-${heute()}.json`, JSON.stringify(state, null, 2), 'application/json'); return; }
-  if (t.id === 'export-csv') { await teilenOderLaden(`strom-tagebuch-${heute()}.csv`, csv(), 'text/csv'); return; }
+  if (t.id === 'export-json') { await teilenOderLaden(`wattkieker-${heute()}.json`, JSON.stringify(state, null, 2), 'application/json'); return; }
+  if (t.id === 'export-csv') { await teilenOderLaden(`wattkieker-${heute()}.csv`, csv(), 'text/csv'); return; }
   if (t.id === 'alles-loeschen') {
     if (confirm('Wirklich ALLE Einträge und Einstellungen löschen?') && confirm('Sicher? Das lässt sich nicht rückgängig machen – vorher exportieren!')) {
       state = null; await speichern(null); viewEinrichtung();
